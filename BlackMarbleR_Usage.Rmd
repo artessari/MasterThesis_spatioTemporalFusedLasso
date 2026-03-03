@@ -1,0 +1,131 @@
+---
+title: "BlackMarbleR"
+output: pdf_document
+editor: visual"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  fig.width = 9,
+  fig.height = 7,
+  fig.align = 'center',
+  out.width = "100%"
+  )
+options(tikzDefaultEngine = 'luatex')
+
+
+#### Setup
+# Load packages
+library(blackmarbler)
+library(geodata)
+library(sf)
+library(terra)
+library(ggplot2)
+library(tidyterra)
+library(lubridate)
+
+#### Define NASA bearer token
+bearer <- get_nasa_token(
+    username = Sys.getenv("NASA_USERNAME"),
+    password = Sys.getenv("NASA_PASSWORD")
+)
+
+### ROI
+# Define region of interest (roi). The roi must be (1) an sf polygon and (2)
+# in the WGS84 (epsg:4326) coordinate reference system. Here, we use the
+# getData function to load a polygon of Ghana
+roi_sf <- gadm(country = "UGA", level=1, path = tempdir()) 
+```
+
+## Usage
+
+See <https://worldbank.github.io/blackmarbler/#usage>
+
+```{r}
+# Force BlackMarbler to use wget for downloading (needed on Windows)
+Sys.setenv(LAADS_DOWNLOAD_METHOD = "wget")
+
+# Check that the LAADS download method is set correctly (should return "wget")
+Sys.getenv()[grep("LAADS", names(Sys.getenv()))]
+
+# Optional: verify that wget is installed and accessible from the system PATH
+# system("wget --version")
+```
+
+```{r}
+# Create a stable folder for downloaded HDF5 files
+h5_folder <- file.path(getwd(), "blackmarble_h5")
+dir.create(h5_folder, showWarnings = FALSE)
+```
+
+```{r}
+# Download VIIRS Black Marble raster
+r_oct2021 <- bm_raster(
+  roi_sf = roi_sf,
+  product_id = "VNP46A3",   # Monthly product
+  date = "2021-10-01",
+  bearer = bearer,
+  download_method = "wget",
+  h5_dir = h5_folder,      
+  quiet = FALSE
+)
+```
+
+```{r}
+# Check that data was successfully downloaded
+if (!is.null(r_oct2021) && nlyr(r_oct2021) > 0) {
+  
+  # Create output directory for final rasters
+  output_dir <- file.path(getwd(), "bm_outputs")
+  dir.create(output_dir, showWarnings = FALSE)
+  
+  # Save as GeoTIFF
+  writeRaster(
+    r_oct2021,
+    filename = file.path(output_dir, "ntl_2021_10.tif"),
+    overwrite = TRUE
+  )
+  
+  # Save also as R object
+  saveRDS(
+    r_oct2021,
+    file.path(output_dir, "ntl_2021_10.Rds")
+  )
+  
+  cat("Download and save completed successfully.\n")
+  
+} else {
+  
+  cat("Download failed: raster object is empty.\n")
+}
+```
+
+```{r}
+r_oct2021 <- readRDS(file.path(getwd(), "bm_outputs", "ntl_2021_10.Rds"))
+```
+
+### Map of nighttime lights
+
+```{r}
+#### Prep data
+r <- r_oct2021 |> terra::mask(roi_sf)
+
+## Distribution is skewed, so log
+r[] <- log(r[] + 1)
+
+##### Map
+ggplot() +
+  geom_spatraster(data = r) +
+  scale_fill_gradient2(low = "black",
+                       mid = "yellow",
+                       high = "red",
+                       midpoint = 4.5,
+                       na.value = "transparent") +
+  labs(title = "Nighttime Lights: October 2021") +
+  coord_sf() +
+  theme_void() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+  legend.position = "none")
+```

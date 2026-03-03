@@ -1,0 +1,9 @@
+# Ignore temporary or output folders
+.Rproj.user/
+blackmarble_h5/
+bm_outputs/
+
+# Ignore R temporary files
+.Rhistory
+.RData
+.Ruserdata/
