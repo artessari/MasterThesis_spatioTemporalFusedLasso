@@ -1,5 +1,5 @@
 ---
-title: "BlackMarbleR"
+title: "BlackMarbleR - Usage and Data Download"
 output: pdf_document
 editor: visual"
 ---
@@ -25,6 +25,8 @@ library(terra)
 library(ggplot2)
 library(tidyterra)
 library(lubridate)
+library(gridExtra)
+library(purrr)
 
 #### Define NASA bearer token
 bearer <- get_nasa_token(
@@ -34,12 +36,11 @@ bearer <- get_nasa_token(
 
 ### ROI
 # Define region of interest (roi). The roi must be (1) an sf polygon and (2)
-# in the WGS84 (epsg:4326) coordinate reference system. Here, we use the
-# getData function to load a polygon of Ghana
+# in the WGS84 (epsg:4326) coordinate reference system. 
 roi_sf <- gadm(country = "UGA", level=1, path = tempdir()) 
 ```
 
-## Usage
+## Usage and Data Download
 
 See <https://worldbank.github.io/blackmarbler/#usage>
 
@@ -55,65 +56,86 @@ Sys.getenv()[grep("LAADS", names(Sys.getenv()))]
 ```
 
 ```{r}
-# Create a stable folder for downloaded HDF5 files
-h5_folder <- file.path(getwd(), "blackmarble_h5")
+# Folders
+h5_folder <- file.path(getwd(), "blackmarble_h5")  # stable folder for HDF5 files
 dir.create(h5_folder, showWarnings = FALSE)
+
+output_dir <- file.path(getwd(), "bm_outputs")     # folder for final rasters
+dir.create(output_dir, showWarnings = FALSE)
 ```
 
 ```{r}
-# Download VIIRS Black Marble raster
-r_oct2021 <- bm_raster(
-  roi_sf = roi_sf,
-  product_id = "VNP46A3",   # Monthly product
-  date = "2021-10-01",
-  bearer = bearer,
-  download_method = "wget",
-  h5_dir = h5_folder,      
-  quiet = FALSE
-)
+# Vector of months to download
+
+# Define start and end date
+start_date <- ymd("2021-10-01")
+end_date   <- ymd("2021-12-01")
+
+# Generate a sequence of months
+months <- seq.Date(from = start_date, to = end_date, by = "month") %>%
+  format("%Y-%m")  # format as "YYYY-MM"
+
+months
 ```
 
 ```{r}
-# Check that data was successfully downloaded
-if (!is.null(r_oct2021) && nlyr(r_oct2021) > 0) {
+# Loop over each month
+for (m in months) {
   
-  # Create output directory for final rasters
-  output_dir <- file.path(getwd(), "bm_outputs")
-  dir.create(output_dir, showWarnings = FALSE)
+  cat("Processing month:", m, "...\n")
   
-  # Save as GeoTIFF
-  writeRaster(
-    r_oct2021,
-    filename = file.path(output_dir, "ntl_2021_10.tif"),
-    overwrite = TRUE
+  # Download raster for the month, HDF5 saved in h5_folder
+  r_month <- bm_raster(
+    roi_sf = roi_sf,
+    product_id = "VNP46A3",
+    date = m,
+    bearer = bearer,
+    download_method = "wget",
+    h5_dir = h5_folder,   # <- HDF5 saved here
+    quiet = FALSE
   )
   
-  # Save also as R object
-  saveRDS(
-    r_oct2021,
-    file.path(output_dir, "ntl_2021_10.Rds")
-  )
-  
-  cat("Download and save completed successfully.\n")
-  
-} else {
-  
-  cat("Download failed: raster object is empty.\n")
+  # Check if raster is valid
+  if (!is.null(r_month) && nlyr(r_month) > 0) {
+    
+    # Generate filenames based on month
+    month_str <- gsub("-", "_", m)
+    tif_file <- file.path(output_dir, paste0("ntl_", month_str, ".tif"))
+    rds_file <- file.path(output_dir, paste0("ntl_", month_str, ".Rds"))
+    
+    # Save raster to bm_outputs folder
+    writeRaster(r_month, filename = tif_file, overwrite = TRUE)
+    saveRDS(r_month, rds_file)
+    
+    cat("Saved raster for", m, "in bm_outputs\n")
+    
+  } else {
+    cat("Download failed or raster empty for", m, "\n")
+  }
 }
 ```
 
-```{r}
-r_oct2021 <- readRDS(file.path(getwd(), "bm_outputs", "ntl_2021_10.Rds"))
-```
-
-### Map of nighttime lights
+## Map of Nighttime Lights
 
 ```{r}
+# Read raster for a given month
+file_rds <- file.path(getwd(), "bm_outputs", "ntl_2021_10.Rds")
+r <- readRDS(file_rds)
+
 #### Prep data
-r <- r_oct2021 |> terra::mask(roi_sf)
+r <- r |> terra::mask(roi_sf)
 
 ## Distribution is skewed, so log
 r[] <- log(r[] + 1)
+
+# Extract month and year from filename
+filename <- basename(file_rds)
+parts <- strsplit(gsub("ntl_|\\.Rds", "", filename), "_")[[1]]  # "2021_12"
+year_val <- parts[1]
+month_val <- parts[2]
+
+# Convert numeric month to month name
+month_name <- month.name[as.numeric(month_val)]
 
 ##### Map
 ggplot() +
@@ -121,11 +143,50 @@ ggplot() +
   scale_fill_gradient2(low = "black",
                        mid = "yellow",
                        high = "red",
-                       midpoint = 4.5,
+                       midpoint = 2.5,
                        na.value = "transparent") +
-  labs(title = "Nighttime Lights: October 2021") +
+  labs(title = paste("Nighttime Lights:", month_name, year_val)) +
   coord_sf() +
   theme_void() +
   theme(plot.title = element_text(face = "bold", hjust = 0.5),
-  legend.position = "none")
+        legend.position = "none")
+```
+
+```{r}
+# List RDS files for each month
+rds_files <- list.files(file.path(getwd(), "bm_outputs"), 
+                        pattern = "ntl_.*\\.Rds$", full.names = TRUE)
+
+# Generate a list of plots
+plots <- map(rds_files, function(f) {
+  
+  #### Prep data for the month
+  r_month <- readRDS(f) |> terra::mask(roi_sf)
+  
+  ## Distribution is skewed, so apply log
+  r_month[] <- log(r_month[] + 1)
+  
+  ##### Map
+  # Extract year and month from filename
+  ym <- gsub("ntl_|\\.Rds", "", basename(f))  # e.g., "2021_10"
+  ym_split <- strsplit(ym, "_")[[1]]
+  year <- ym_split[1]
+  month_name <- month.name[as.integer(ym_split[2])]  # Convert number to month name
+  
+  ggplot() +
+    geom_spatraster(data = r_month) +
+    scale_fill_gradient2(low = "black",
+                         mid = "yellow",
+                         high = "red",
+                         midpoint = 2.5,
+                         na.value = "transparent") +
+    labs(title = paste(month_name, year)) +
+    coord_sf() +
+    theme_void() +
+    theme(plot.title = element_text(face = "bold", hjust = 0.5),
+          legend.position = "none")
+})
+
+# Display all maps together in a grid
+gridExtra::grid.arrange(grobs = plots, ncol = 3)
 ```
