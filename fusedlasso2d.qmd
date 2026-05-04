@@ -1,0 +1,217 @@
+---
+title: "Untitled"
+format: pdf
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+### ROI
+# Define region of interest (roi). The roi must be (1) an sf polygon and (2)
+# in the WGS84 (epsg:4326) coordinate reference system. 
+roi_sf <- gadm(country = "UGA", level=1, path = tempdir()) 
+```
+
+```{r}
+roi_sf <- readRDS("gadm41_UGA_1_pk.rds")
+```
+
+```{r}
+# Read raster for a given month
+file_rds <- file.path(getwd(), "bm_outputs", "ntl_2021_10.Rds")
+r <- readRDS(file_rds)
+
+#### Prep data
+r <- r |> terra::mask(roi_sf)
+
+## Distribution is skewed, so log
+r[] <- log(r[] + 1)
+
+# Extract month and year from filename
+filename <- basename(file_rds)
+parts <- strsplit(gsub("ntl_|\\.Rds", "", filename), "_")[[1]]  # "2021_12"
+year_val <- parts[1]
+month_val <- parts[2]
+
+# Convert numeric month to month name
+month_name <- month.name[as.numeric(month_val)]
+
+##### Map
+ggplot() +
+  geom_spatraster(data = r) +
+  scale_fill_gradient2(low = "black",
+                       mid = "yellow",
+                       high = "red",
+                       midpoint = 2.5,
+                       na.value = "transparent") +
+  labs(title = paste("Nighttime Lights:", month_name, year_val)) +
+  coord_sf() +
+  theme_void() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+        legend.position = "none")
+```
+
+```{r}
+terra::summary(r)
+```
+
+```{r}
+head(values(r))
+```
+
+```{r}
+terra::global(r, "mean", na.rm = TRUE)
+```
+
+### Matrix
+
+```{r}
+terra::nrow(r)
+terra::ncol(r)
+terra::ncell(r)
+```
+
+```{r}
+v <- terra::values(r)
+
+m <- matrix(
+  v,
+  nrow = terra::nrow(r),
+  ncol = terra::ncol(r),
+  byrow = TRUE
+)
+
+dim(m)
+```
+
+```{r}
+m_plot <- t(m)[, nrow(m):1]
+image(m_plot)
+```
+
+```{r}
+kampala <- dplyr::filter(roi_sf, NAME_1 == "Kampala")
+```
+
+```{r}
+r_kampala <- r %>%
+  terra::crop(kampala) %>%
+  terra::mask(kampala)
+```
+
+```{r}
+kampala_buffer <- terra::buffer(kampala, 10)
+
+r_kampala_square <- terra::crop(r, kampala_buffer)
+```
+
+```{r}
+plot(r_kampala_square)
+plot(kampala_buffer, add = TRUE, border = "blue", lwd = 2)
+```
+
+```{r}
+library(genlasso)
+
+# Usa il raster RETTANGOLARE (senza maschera) per mantenere la griglia
+v <- terra::values(r_kampala_square)
+nr <- terra::nrow(r_kampala_square)
+nc <- terra::ncol(r_kampala_square)
+
+# Sostituisci NA con 0 (o la media) per mantenere la struttura griglia
+v[is.na(v)] <- 0
+
+y <- as.numeric(v)
+
+# Matrice di penalità 2D
+D <- getD2d(nr, nc)
+
+# Fit
+fit <- fusedlasso(y = y, D = D)
+```
+
+```{r}
+# Fit
+m <- matrix(v, nrow = nr, ncol = nc)
+fit <- fusedlasso2d(m)
+
+fit
+```
+
+```{r}
+# Estrai coefficienti a un dato lambda
+coef_fit <- coef(fit, lambda = 5)$beta
+m_smooth <- matrix(coef_fit, nrow = nr, ncol = nc)
+image(t(m_smooth)[, nrow(m_smooth):1])
+```
+
+```{r}
+range(fit$lambda)
+```
+
+```{r}
+par(mfrow = c(2, 3))
+for (lam in quantile(fit$lambda, c(0.01, 0.05, 0.1, 0.25, 0.5, 0.9))) {
+  coef_fit <- coef(fit, lambda = lam)$beta
+  m_smooth <- matrix(coef_fit, nrow = nr, ncol = nc)
+  image(t(m_smooth)[, nrow(m_smooth):1], 
+        main = paste("lambda =", round(lam, 3)))
+}
+```
+
+```{r}
+library(viridis)
+
+coef_fit <- coef(fit, lambda = 0.6)$beta
+m_smooth <- matrix(coef_fit, nrow = nr, ncol = nc)
+
+image(t(m_smooth)[, nrow(m_smooth):1], 
+      col = viridis(100),
+      main = "Fused Lasso 2D - Kampala (λ = 0.6)")
+```
+
+```{r}
+par(mfrow = c(1, 2))
+
+# Originale
+image(t(m)[, nrow(m):1], 
+      col = viridis(100),
+      main = "Originale")
+
+# Smoothed
+coef_fit <- coef(fit, lambda = 0.6)$beta
+m_smooth <- matrix(coef_fit, nrow = nr, ncol = nc)
+image(t(m_smooth)[, nrow(m_smooth):1], 
+      col = viridis(100),
+      main = "Fused Lasso (λ = 0.6)")
+```
+
+```{r}
+# Rimetti i coefficienti smoothed nel raster originale
+r_smooth <- r_kampala_square  # copia la struttura (extent, crs, ecc.)
+
+coef_fit <- coef(fit, lambda = 0.6)$beta
+terra::values(r_smooth) <- coef_fit
+
+# Ora confronta con le coordinate geografiche corrette
+par(mfrow = c(1, 2))
+plot(r_kampala_square, main = "Originale")
+plot(kampala_buffer, add = TRUE, border = "blue", lwd = 2)
+
+plot(r_smooth, main = "Fused Lasso (λ = 0.6)")
+plot(kampala_buffer, add = TRUE, border = "blue", lwd = 2)
+```
+
+```{r}
+lim <- range(values(r_kampala_square), na.rm = TRUE)
+
+par(mfrow = c(1, 2))
+plot(r_kampala_square, main = "Originale", range = lim)
+plot(kampala_buffer, add = TRUE, border = "blue", lwd = 2)
+
+plot(r_smooth, main = "Fused Lasso (λ = 0.6)", range = lim)
+plot(kampala_buffer, add = TRUE, border = "blue", lwd = 2)
+```
