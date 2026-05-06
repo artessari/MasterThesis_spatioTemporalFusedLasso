@@ -8,3 +8,6 @@ bm_outputs/
 .RData
 .Ruserdata/
 .positai
+
+# Ignore private environment variables
+.Renviron
