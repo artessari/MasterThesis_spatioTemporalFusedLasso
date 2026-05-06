@@ -1,13 +1,61 @@
-# Ignore temporary or output folders
+# === RStudio & R Environment ===
 .Rproj.user/
-blackmarble_h5/
-bm_outputs/
-
-# Ignore R temporary files
 .Rhistory
 .RData
 .Ruserdata/
+.Renviron
 .positai
 
-# Ignore private environment variables
-.Renviron
+# === Project Specific Folders ===
+blackmarble_h5/
+bm_outputs/
+
+# === renv Library (Local) ===
+# Library excluded; essential files for environment restoration are kept
+renv/library/
+renv/staging/
+!.Rprofile
+!renv.lock
+!renv/activate.R
+
+# === Data Input ===
+# All folders starting with 'input' are excluded
+input*/
+
+# === System Files ===
+.cache/
+.config/
+.gitconfig
+.jupyter/
+.local/
+.rstudio/
+.ssh/
+.sh_history
+.nfs*
+.DS_Store
+Thumbs.db
+
+# === Quarto / RMarkdown Output & Cache ===
+# HTML outputs and generated supporting files
+*.html
+*_files/
+*_cache/
+/.quarto/
+**/*.quarto_ipynb
+
+# LaTeX intermediate files (PDF export)
+*.tex
+*.log
+*.aux
+*.out
+*.toc
+
+# === Rendered Outputs ===
+# All files in renders excluded except for final PDFs
+renders/*
+!renders/*.pdf
+
+# === Images ===
+# Local image folders
+images/
+**/images/
