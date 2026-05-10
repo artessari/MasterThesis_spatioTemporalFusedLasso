@@ -5,6 +5,20 @@ editor: visual
 ---
 
 ```{r}
+#| label: setup
+#| include: false
+#| collapse: true
+#| comment: "#>"
+#| fig-width: 9
+#| fig-height: 7
+#| fig-align: center
+#| out-width: "100%"
+
+options(tikzDefaultEngine = 'luatex')
+
+library(genlasso)
+library(geodata)
+library(tidyterra)
 library(tidyverse)
 ```
 
@@ -13,10 +27,6 @@ library(tidyverse)
 # Define region of interest (roi). The roi must be (1) an sf polygon and (2)
 # in the WGS84 (epsg:4326) coordinate reference system. 
 roi_sf <- gadm(country = "UGA", level=1, path = tempdir()) 
-```
-
-```{r}
-roi_sf <- readRDS("gadm41_UGA_1_pk.rds")
 ```
 
 ```{r}
@@ -66,12 +76,17 @@ head(values(r))
 terra::global(r, "mean", na.rm = TRUE)
 ```
 
-### Matrix
+## Matrix
 
 ```{r}
 terra::nrow(r)
 terra::ncol(r)
 terra::ncell(r)
+```
+
+```{r}
+# Count the total number of missing values (NAs)
+terra::global(is.na(r), "sum")
 ```
 
 ```{r}
@@ -92,6 +107,8 @@ m_plot <- t(m)[, nrow(m):1]
 image(m_plot)
 ```
 
+## Kampala
+
 ```{r}
 kampala <- dplyr::filter(roi_sf, NAME_1 == "Kampala")
 ```
@@ -109,109 +126,197 @@ r_kampala_square <- terra::crop(r, kampala_buffer)
 ```
 
 ```{r}
+# Count the total number of missing values (NAs) within the rectangular bounding box of the Kampala buffered area
+terra::global(is.na(r_kampala_square), "sum")
+```
+
+```{r}
 plot(r_kampala_square)
 plot(kampala_buffer, add = TRUE, border = "blue", lwd = 2)
 ```
 
+## genlasso – Spatial Fused Lasso, Kampala (October 2021)
+
+Spatial fused lasso applied to Kampala nighttime lights – October 2021 (single month, 2D)
+
+### 1. Extract matrix from raster
+
 ```{r}
-library(genlasso)
+v_kla <- terra::values(r_kampala_square) # column-major vector
+nrow_k <- terra::nrow(r_kampala_square)
+ncol_k <- terra::ncol(r_kampala_square)
 
-# Usa il raster RETTANGOLARE (senza maschera) per mantenere la griglia
-v <- terra::values(r_kampala_square)
-nr <- terra::nrow(r_kampala_square)
-nc <- terra::ncol(r_kampala_square)
+# Track NA positions (from mask) to restore them later
+na_idx <- is.na(v_kla)
 
-# Sostituisci NA con 0 (o la media) per mantenere la struttura griglia
-v[is.na(v)] <- 0
+# Replace NAs with 0 for the solver (genlasso can't handle NAs)
+v_kla_clean <- v_kla
+v_kla_clean[na_idx] <- 0
+```
 
-y <- as.numeric(v)
+### 2. Fit 2D fused lasso
 
-# Matrice di penalità 2D
-D <- getD2d(nr, nc)
-
-# Fit
-fit <- fusedlasso(y = y, D = D)
+```{r}
+# fusedlasso2d builds the 2D difference operator internally
+fit <- fusedlasso2d(
+  y    = as.numeric(v_kla_clean),
+  dim1 = nrow_k,
+  dim2 = ncol_k
+)
 ```
 
 ```{r}
-# Fit
-m <- matrix(v, nrow = nr, ncol = nc)
-fit <- fusedlasso2d(m)
-
 fit
 ```
 
-```{r}
-# Estrai coefficienti a un dato lambda
-coef_fit <- coef(fit, lambda = 5)$beta
-m_smooth <- matrix(coef_fit, nrow = nr, ncol = nc)
-image(t(m_smooth)[, nrow(m_smooth):1])
-```
+### 3. Choose lambda
+
+#### Option A — Pick lambda visually from the path
 
 ```{r}
-range(fit$lambda)
+plot(fit)
+# Look for the "elbow" where the solution stabilizes
 ```
 
+#### Option B — K-fold Cross-Validation
+
 ```{r}
-par(mfrow = c(2, 3))
-for (lam in quantile(fit$lambda, c(0.01, 0.05, 0.1, 0.25, 0.5, 0.9))) {
-  coef_fit <- coef(fit, lambda = lam)$beta
-  m_smooth <- matrix(coef_fit, nrow = nr, ncol = nc)
-  image(t(m_smooth)[, nrow(m_smooth):1], 
-        main = paste("lambda =", round(lam, 3)))
+set.seed(123)
+n <- length(v_kla_clean)
+K <- 5
+folds <- sample(rep(1:K, length.out = n))
+
+# 1. Pre-fit the folds
+fold_fits <- vector("list", K)
+max_min_lambda <- 0
+
+for (k in 1:K) {
+  test_idx  <- which(folds == k)
+  y_train   <- v_kla_clean
+  # Setting test values to 0 is a common proxy for CV in genlasso
+  y_train[test_idx] <- 0 
+  
+  fold_fits[[k]] <- fusedlasso2d(
+    y    = as.numeric(y_train),
+    dim1 = nrow_k,
+    dim2 = ncol_k
+  )
+  
+  # Track the highest 'minimum lambda' across all folds to find a safe range
+  max_min_lambda <- max(max_min_lambda, min(fold_fits[[k]]$lambda))
 }
+
+# 2. Define a safe grid of lambdas
+# We only pick lambdas from the original fit that are > max_min_lambda
+lambdas_safe <- fit$lambda[fit$lambda >= max_min_lambda]
+
+# 3. Compute CV Errors
+cv_errors <- numeric(length(lambdas_safe))
+
+for (k in 1:K) {
+  test_idx <- which(folds == k)
+  
+  for (j in seq_along(lambdas_safe)) {
+    # Use tryCatch to skip lambdas that might still cause issues in specific folds
+    res <- tryCatch({
+      beta_j <- coef(fold_fits[[k]], lambda = lambdas_safe[j])$beta
+      mean((v_kla_clean[test_idx] - beta_j[test_idx])^2)
+    }, error = function(e) NA)
+    
+    if (!is.na(res)) {
+      cv_errors[j] <- cv_errors[j] + res
+    }
+  }
+}
+
+# 4. Identify Optimal Lambda
+# Divide by K to get the average MSE
+cv_mse <- cv_errors / K
+lambda_opt_cv <- lambdas_safe[which.min(cv_mse)]
+
+cat("Optimal Lambda (CV):", lambda_opt_cv, "\n")
+
+# 5. Plotting the CV Curve
+plot(log(lambdas_safe), cv_mse, type = "b", pch = 20, col = "darkgreen",
+     xlab = "log(lambda)", ylab = "CV Mean Squared Error",
+     main = "Cross-validation for 2D Fused Lasso")
+abline(v = log(lambda_opt_cv), col = "red", lty = 2)
 ```
+
+#### Option C — Lambda Selection via BIC (Bayesian Information Criterion)
 
 ```{r}
-library(viridis)
+# 1. Data Preparation
+# Convert the cleaned values to a standard numeric vector to ensure compatibility
+y_vec <- as.numeric(v_kla_clean)
+n <- length(y_vec)
 
-coef_fit <- coef(fit, lambda = 0.6)$beta
-m_smooth <- matrix(coef_fit, nrow = nr, ncol = nc)
+# 2. Extract Coefficient Matrix
+# fit$beta contains the fitted values for each step in the solution path
+beta_mat <- as.matrix(fit$beta) 
 
-image(t(m_smooth)[, nrow(m_smooth):1], 
-      col = viridis(100),
-      main = "Fused Lasso 2D - Kampala (λ = 0.6)")
+# 3. Calculate Residual Sum of Squares (RSS)
+# Using sweep to subtract y_vec from each column of the beta matrix
+residuals <- sweep(beta_mat, 1, y_vec, "-")
+rss <- colSums(residuals^2)
+
+# 4. Degrees of Freedom
+# genlasso provides the df (number of connected components) for each lambda
+df_vec <- fit$df
+
+# 5. Estimate Error Variance (sigma^2)
+# Typically estimated using the residuals of the least penalized model (end of path)
+sig2_est <- rss[length(rss)] / (n - df_vec[length(df_vec)])
+
+# 6. Compute BIC Score
+# Formula: RSS / (n * sigma^2) + (log(n) * df) / n
+bic_values <- rss / (n * sig2_est) + (log(n) * df_vec) / n
+
+# 7. Identify Optimal Lambda
+best_idx <- which.min(bic_values)
+lambda_opt <- fit$lambda[best_idx]
+
+cat("Optimal Lambda selected (BIC):", lambda_opt, "\n")
+
+# 8. Visualization of the selection process
+plot(log(fit$lambda), bic_values, type = "l", col = "darkblue", lwd = 2,
+     xlab = "log(lambda)", ylab = "BIC Score",
+     main = "Optimal Lambda Selection via BIC")
+abline(v = log(lambda_opt), col = "red", lty = 2)
+legend("topright", legend = paste("Best Lambda =", round(lambda_opt, 3)), 
+       col = "red", lty = 2, bty = "n")
 ```
+
+### 4. Extract smoothed coefficients
+
+```{r}
+beta_smooth <- coef(fit, lambda = lambda_opt)$beta
+
+# Restore NAs
+beta_smooth[na_idx] <- NA
+```
+
+### 5. Rebuild raster
+
+```{r}
+r_smooth <- r_kampala_square
+terra::values(r_smooth) <- beta_smooth
+```
+
+### 6. Visual comparison
 
 ```{r}
 par(mfrow = c(1, 2))
 
-# Originale
-image(t(m)[, nrow(m):1], 
-      col = viridis(100),
-      main = "Originale")
+plot(r_kampala_square,
+     main  = "Original (log NTL)",
+     col   = hcl.colors(100, "YlOrRd"),
+     range = c(0, max(v_kla, na.rm = TRUE)))
 
-# Smoothed
-coef_fit <- coef(fit, lambda = 0.6)$beta
-m_smooth <- matrix(coef_fit, nrow = nr, ncol = nc)
-image(t(m_smooth)[, nrow(m_smooth):1], 
-      col = viridis(100),
-      main = "Fused Lasso (λ = 0.6)")
-```
+plot(r_smooth,
+     main  = paste0("Fused Lasso (λ=", round(lambda_opt, 3), ")"),
+     col   = hcl.colors(100, "YlOrRd"),
+     range = c(0, max(v_kla, na.rm = TRUE)))
 
-```{r}
-# Rimetti i coefficienti smoothed nel raster originale
-r_smooth <- r_kampala_square  # copia la struttura (extent, crs, ecc.)
-
-coef_fit <- coef(fit, lambda = 0.6)$beta
-terra::values(r_smooth) <- coef_fit
-
-# Ora confronta con le coordinate geografiche corrette
-par(mfrow = c(1, 2))
-plot(r_kampala_square, main = "Originale")
-plot(kampala_buffer, add = TRUE, border = "blue", lwd = 2)
-
-plot(r_smooth, main = "Fused Lasso (λ = 0.6)")
-plot(kampala_buffer, add = TRUE, border = "blue", lwd = 2)
-```
-
-```{r}
-lim <- range(values(r_kampala_square), na.rm = TRUE)
-
-par(mfrow = c(1, 2))
-plot(r_kampala_square, main = "Originale", range = lim)
-plot(kampala_buffer, add = TRUE, border = "blue", lwd = 2)
-
-plot(r_smooth, main = "Fused Lasso (λ = 0.6)", range = lim)
-plot(kampala_buffer, add = TRUE, border = "blue", lwd = 2)
+par(mfrow = c(1, 1))
 ```
