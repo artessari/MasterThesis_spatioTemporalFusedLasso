@@ -35,7 +35,7 @@ file_rds <- file.path(getwd(), "bm_outputs", "ntl_2021_10.Rds")
 r <- readRDS(file_rds)
 
 #### Prep data
-r <- r |> terra::mask(roi_sf)
+r <- r %>% terra::mask(roi_sf)
 
 ## Distribution is skewed, so log
 r[] <- log(r[] + 1)
@@ -330,8 +330,18 @@ files_2021 <- list.files(
   path       = file.path(getwd(), "bm_outputs"),
   pattern    = "ntl_2021_.*\\.Rds",
   full.names = TRUE
-) |> sort()
+) %>% sort()
 
+prep_raster <- function(file_rds, roi) {
+  r <- readRDS(file_rds) %>%
+    terra::mask(roi) %>%
+    terra::crop(terra::buffer(roi, 10))
+  r[] <- log(r[] + 1)
+  r
+}
+```
+
+```{r}
 r_list <- lapply(files_2021, prep_raster, roi = kampala)
 r_list <- lapply(r_list, terra::resample, y = r_list[[1]])
 r_stack <- terra::rast(r_list)
