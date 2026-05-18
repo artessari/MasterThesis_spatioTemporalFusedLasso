@@ -1,7 +1,7 @@
 project:
   type: default
   # Directory for the rendered output files
-  output-dir: PDF-Dokumentation
+  output-dir: PDF-Documentation
 
 execute:
   # 'freeze: auto' saves computation time by only re-rendering modified files
