@@ -152,3 +152,66 @@ for (m in months) {
 ```
 
 # Map of Nighttime Lights
+
+This map shows monthly Black Marble nighttime light intensity for a selected period in Uganda. The raster is masked to the region of interest and log-transformed to reduce right-skewness and enhance spatial contrast.
+
+```{r}
+# Read raster for a given month
+file_rds <- file.path(getwd(), "data", "blackmarble_rasters", "ntl_2020_03.Rds")
+r <- readRDS(file_rds)
+
+#### Prep data
+r <- r %>% terra::mask(roi_sf)
+
+## Distribution is skewed, so log
+r[] <- log(r[] + 1)
+
+# Extract month and year from filename
+filename <- basename(file_rds)
+parts <- strsplit(gsub("ntl_|\\.Rds", "", filename), "_")[[1]]  # "YYYY_MM"
+year_val <- parts[1]
+month_val <- parts[2]
+
+# Convert numeric month to month name
+month_name <- month.name[as.numeric(month_val)]
+
+##### Map
+ggplot() +
+  geom_spatraster(data = r) +
+  scale_fill_gradient2(low = "black",
+                       mid = "yellow",
+                       high = "red",
+                       midpoint = 2.5,
+                       na.value = "transparent") +
+  labs(title = paste("Nighttime Lights:", month_name, year_val)) +
+  coord_sf() +
+  theme_void() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+        legend.position = "none")
+```
+
+## Raster summary statistics
+
+Basic summary statistics and mean nighttime light intensity are computed to characterize the distribution of raster values.
+
+```{r}
+terra::summary(r)
+```
+
+```{r}
+terra::global(r, "mean", na.rm = TRUE)
+```
+
+```{r}
+sum(r[] == 0, na.rm = TRUE)
+```
+
+The raster summary statistics indicate a strongly right-skewed distribution of nighttime light intensity values. The majority of pixels exhibit zero or near-zero radiance (median = 0, first and third quartiles = 0), suggesting extensive areas with no detectable artificial illumination.
+
+However, the global mean nighttime light intensity (0.013) confirms a generally low level of artificial illumination across the study area. This low average is driven by the large proportion of zero-valued pixels, indicating predominantly rural or non-urban land cover.
+
+The maximum value (4.75) highlights the presence of a small number of highly illuminated pixels, likely corresponding to urban centers or densely populated settlements. These hotspots disproportionately influence the spatial distribution of light.
+
+The large number of zero-valued pixels further supports the spatially heterogeneous nature of nighttime light distribution in the study region. Overall, these results highlight a highly uneven spatial pattern, characterized by widespread absence of light and a small number of bright hotspots, which is typical of low- to medium-urbanized landscapes.
+
+# NA = 38,005 pixels
