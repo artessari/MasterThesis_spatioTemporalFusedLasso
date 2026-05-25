@@ -9,6 +9,7 @@
 # === Project Specific Folders ===
 blackmarble_h5/
 bm_outputs/
+data/blackmarble_h5/**
 
 # === renv Library (Local) ===
 # Library excluded; essential files for environment restoration are kept
