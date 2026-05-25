@@ -1,0 +1,154 @@
+---
+title: "BlackMarbleR - Usage and Data Download"
+format: pdf
+editor: visual
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+knitr::opts_chunk$set(
+  fig.width = 9,  
+  fig.height = 7,    
+  fig.align = "center",
+  out.width = "100%",
+  dpi = 300
+)
+
+options(tikzDefaultEngine = 'luatex')
+
+#### Setup
+# Load packages
+library(blackmarbler)
+library(geodata)
+library(sf)
+library(terra)
+library(ggplot2)
+library(tidyterra)
+library(lubridate)
+library(gridExtra)
+library(purrr)
+
+#### Define NASA bearer token
+bearer <- get_nasa_token(
+    username = Sys.getenv("NASA_USERNAME"),
+    password = Sys.getenv("NASA_PASSWORD")
+)
+```
+
+## Usage and Data Download
+
+See <https://worldbank.github.io/blackmarbler/#usage>
+
+# ROI - Region Of Interest
+
+```{r}
+### ROI
+# Define region of interest (roi). The roi must be (1) an sf polygon and (2)
+# in the WGS84 (epsg:4326) coordinate reference system. 
+roi_sf <- gadm(country = "UGA", level=1, path = tempdir()) 
+```
+
+```{r}
+# roi_sf <- readRDS("./gadm41_UGA_1_pk.rds")
+```
+
+# Data Download - Country Level
+
+```{r}
+# Force BlackMarbler to use wget for downloading (needed on Windows)
+Sys.setenv(LAADS_DOWNLOAD_METHOD = "wget")
+
+# Check that the LAADS download method is set correctly (should return "wget")
+Sys.getenv()[grep("LAADS", names(Sys.getenv()))]
+
+# Optional: verify that wget is installed and accessible from the system PATH
+# system("wget --version")
+```
+
+## Folders
+
+```{r}
+# base data folder
+data_dir <- file.path(getwd(), "data")
+dir.create(data_dir, showWarnings = FALSE, recursive = TRUE)
+
+# folder for HDF5 files
+h5_folder <- file.path(data_dir, "blackmarble_h5")
+dir.create(h5_folder, showWarnings = FALSE, recursive = TRUE)
+
+# folder for final rasters
+output_dir <- file.path(data_dir, "blackmarble_rasters")
+dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+```
+
+## Time index
+
+```{r}
+# Define time range (monthly aggregation period)
+start_date <- ymd("2020-01-01")
+end_date   <- ymd("2020-04-01")
+
+# Generate monthly sequence 
+months <- seq.Date(from = start_date, to = end_date, by = "month") %>%
+  format("%Y-%m")  # format as "YYYY-MM"
+
+months
+```
+
+\newpage
+
+## Process monthly rasters
+
+```{r}
+#| message: false
+#| warning: false
+
+# Loop over monthly time index
+for (m in months) {
+  
+  cat("Processing month:", m, "...\n")
+  
+  # Start timer
+  t0 <- Sys.time()
+  
+  # Download and extract Black Marble raster for the selected month
+  # HDF5 files are stored in h5_folder for reproducibility
+  r_month <- bm_raster(
+    roi_sf = roi_sf,
+    product_id = "VNP46A3",
+    date = m,
+    bearer = bearer,
+    download_method = "wget",
+    h5_dir = h5_folder,
+    quiet = FALSE
+  )
+  
+  # End timer
+  t1 <- Sys.time()
+  elapsed <- round(as.numeric(difftime(t1, t0, units = "secs")), 2)
+  
+  cat("Download time for", m, ":", elapsed, "seconds\n")
+  
+  # Validate raster output
+  if (!is.null(r_month) && nlyr(r_month) > 0) {
+    
+    # Create output filenames based on YYYY-MM time string
+    month_str <- gsub("-", "_", m)
+    tif_file <- file.path(output_dir, paste0("ntl_", month_str, ".tif"))
+    rds_file <- file.path(output_dir, paste0("ntl_", month_str, ".Rds"))
+    
+    # Save processed raster outputs
+    writeRaster(r_month, filename = tif_file, overwrite = TRUE)
+    saveRDS(r_month, rds_file)
+    
+    cat("Saved raster for", m, "to output directory\n")
+    
+  } else {
+    cat("Missing or invalid raster for", m, "\n")
+  }
+}
+```
+
+# Map of Nighttime Lights
