@@ -87,12 +87,11 @@ dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
 ```{r}
 # Define time range (monthly aggregation period)
-start_date <- ymd("2020-01-01")
-end_date   <- ymd("2020-04-01")
+start_date <- ym("2020-01")
+end_date   <- ym("2020-12")
 
 # Generate monthly sequence 
-months <- seq.Date(from = start_date, to = end_date, by = "month") %>%
-  format("%Y-%m")  # format as "YYYY-MM"
+months <- format(seq(start_date, end_date, by = "month"), "%Y-%m") # format as "YYYY-MM"
 
 months
 ```
@@ -150,6 +149,8 @@ for (m in months) {
   }
 }
 ```
+
+\newpage
 
 # Map of Nighttime Lights
 
@@ -215,3 +216,111 @@ The maximum value (4.75) highlights the presence of a small number of highly ill
 The large number of zero-valued pixels further supports the spatially heterogeneous nature of nighttime light distribution in the study region. Overall, these results highlight a highly uneven spatial pattern, characterized by widespread absence of light and a small number of bright hotspots, which is typical of low- to medium-urbanized landscapes.
 
 # NA = 38,005 pixels
+
+\newpage
+
+# Matrix
+
+```{r}
+terra::nrow(r)
+terra::ncol(r)
+terra::ncell(r)
+```
+
+```{r}
+v <- terra::values(r)
+
+m <- matrix(
+  v,
+  nrow = terra::nrow(r),
+  ncol = terra::ncol(r),
+  byrow = TRUE
+)
+
+dim(m)
+```
+
+```{r}
+image(m)
+```
+
+```{r}
+m_plot <- t(m)[, nrow(m):1]
+image(m_plot)
+```
+
+# Map of Annual Nighttime Lights
+
+```{r}
+all_files <- list.files(
+  file.path(getwd(), "data", "blackmarble_rasters"),
+  pattern = "ntl_.*\\.Rds$",
+  full.names = TRUE
+)
+
+get_year <- function(f) {
+  strsplit(gsub("ntl_|\\.Rds", "", basename(f)), "_")[[1]][1]
+}
+
+files_by_year <- split(all_files, sapply(all_files, get_year))
+```
+
+```{r}
+plot_year <- function(files_year) {
+  
+  # List RDS files for each month
+  files_year <- files_year[order(files_year)]
+  
+  # Generate a list of plots
+  plots <- map(files_year, function(f) {
+    
+    #### Prep data for the month
+    r_month <- readRDS(f) %>% terra::mask(roi_sf)
+    
+    ## Distribution is skewed, so apply log
+    r_month <- log1p(r_month)
+    
+    ##### Map
+    # Extract year and month from filename
+    ym <- gsub("ntl_|\\.Rds", "", basename(f))  # e.g., "2021_10"
+    ym_split <- strsplit(ym, "_")[[1]]
+    year <- ym_split[1]
+    month_name <- month.name[as.integer(ym_split[2])]  # Convert number to month name
+    
+    ggplot() +
+      geom_spatraster(data = r_month) +
+      scale_fill_viridis_c(
+        option = "inferno",
+        na.value = "transparent"
+      ) +
+      labs(title = month_name) +
+      coord_sf() +
+      theme_void() +
+      theme(
+        plot.title = element_text(face = "bold", hjust = 0.5, size = 10),
+        legend.position = "none"
+      )
+  })
+  
+  # Extract year for title (from first file)
+  year <- strsplit(
+    gsub("ntl_|\\.Rds", "", basename(files_year[1])),
+    "_"
+  )[[1]][1]
+  
+  # Display all maps together in a grid
+  gridExtra::grid.arrange(
+    grobs = plots,
+    ncol = 4,
+    top = grid::textGrob(
+      paste("Night Lights -", year),
+      gp = grid::gpar(fontsize = 12, fontface = "bold")
+    )
+  )
+}
+```
+
+```{r}
+target_year <- "2021"
+plot_year(all_files[sapply(all_files, get_year) == target_year])
+```
