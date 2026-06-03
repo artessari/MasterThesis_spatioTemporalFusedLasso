@@ -1,5 +1,6 @@
 ---
 title: "1D and 2D Fused Lasso"
+subtitle: "Spatio-Temporal Change Detection of Nighttime Lights"
 format: pdf
 editor: visual
 ---
@@ -7,12 +8,14 @@ editor: visual
 ```{r}
 #| label: setup
 #| include: false
-#| collapse: true
-#| comment: "#>"
-#| fig-width: 9
-#| fig-height: 7
-#| fig-align: center
-#| out-width: "100%"
+
+knitr::opts_chunk$set(
+  fig.width = 9,  
+  fig.height = 7,    
+  fig.align = "center",
+  out.width = "100%",
+  dpi = 300
+)
 
 options(tikzDefaultEngine = 'luatex')
 
@@ -26,13 +29,7 @@ library(tidyverse)
 
 ```{r}
 ### ROI
-# Define region of interest (roi). The roi must be (1) an sf polygon and (2)
-# in the WGS84 (epsg:4326) coordinate reference system. 
-roi_sf <- gadm(country = "UGA", level=1, path = tempdir()) 
-```
-
-```{r}
-# roi_sf <- readRDS("./data/gadm41_UGA_1_pk.rds")
+roi_sf <- readRDS("./data/gadm/gadm41_UGA_1_pk.rds")
 ```
 
 # Map of Nighttime Lights
@@ -191,6 +188,9 @@ plot(fit)
 ### Option B — K-fold Cross-Validation
 
 ```{r}
+#| echo: true
+#| eval: false
+
 set.seed(123)
 n <- length(v_kla_clean)
 K <- 5
@@ -324,8 +324,8 @@ plot(r_kampala_square,
      range = c(0, max(v_kla, na.rm = TRUE)))
 
 plot(r_smooth,
-     main  = paste0("Fused Lasso (λ=", round(lambda_opt, 3), ")"),
-     col   = hcl.colors(100, "YlOrRd"),
+     main = paste0("Fused Lasso (Lambda = ", round(lambda_opt, 3), ")"),
+     col  = hcl.colors(100, "YlOrRd"),
      range = c(0, max(v_kla, na.rm = TRUE)))
 
 par(mfrow = c(1, 1))
@@ -337,7 +337,7 @@ par(mfrow = c(1, 1))
 
 ```{r}
 files_2021 <- list.files(
-  path       = file.path(getwd(), "bm_outputs"),
+  path       = file.path(getwd(), "data", "blackmarble_rasters"),
   pattern    = "ntl_2021_.*\\.Rds",
   full.names = TRUE
 ) %>% sort()
