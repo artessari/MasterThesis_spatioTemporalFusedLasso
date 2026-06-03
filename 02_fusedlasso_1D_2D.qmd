@@ -22,6 +22,8 @@ library(tidyterra)
 library(tidyverse)
 ```
 
+# ROI - Region Of Interest
+
 ```{r}
 ### ROI
 # Define region of interest (roi). The roi must be (1) an sf polygon and (2)
@@ -33,9 +35,11 @@ roi_sf <- gadm(country = "UGA", level=1, path = tempdir())
 # roi_sf <- readRDS("./data/gadm41_UGA_1_pk.rds")
 ```
 
+# Map of Nighttime Lights
+
 ```{r}
 # Read raster for a given month
-file_rds <- file.path(getwd(), "bm_outputs", "ntl_2021_10.Rds")
+file_rds <- file.path(getwd(), "data", "blackmarble_rasters", "ntl_2020_03.Rds")
 r <- readRDS(file_rds)
 
 #### Prep data
@@ -46,7 +50,7 @@ r[] <- log(r[] + 1)
 
 # Extract month and year from filename
 filename <- basename(file_rds)
-parts <- strsplit(gsub("ntl_|\\.Rds", "", filename), "_")[[1]]  # "2021_12"
+parts <- strsplit(gsub("ntl_|\\.Rds", "", filename), "_")[[1]]  # "YYYY_MM"
 year_val <- parts[1]
 month_val <- parts[2]
 
@@ -68,19 +72,21 @@ ggplot() +
         legend.position = "none")
 ```
 
-```{r}
-terra::summary(r)
-```
+## Raster summary statistics
 
 ```{r}
-head(values(r))
+terra::summary(r)
 ```
 
 ```{r}
 terra::global(r, "mean", na.rm = TRUE)
 ```
 
-## Matrix
+```{r}
+sum(r[] == 0, na.rm = TRUE)
+```
+
+# Matrix
 
 ```{r}
 terra::nrow(r)
@@ -111,7 +117,7 @@ m_plot <- t(m)[, nrow(m):1]
 image(m_plot)
 ```
 
-## Kampala
+# Kampala
 
 ```{r}
 kampala <- dplyr::filter(roi_sf, NAME_1 == "Kampala")
@@ -139,11 +145,11 @@ plot(r_kampala_square)
 plot(kampala_buffer, add = TRUE, border = "blue", lwd = 2)
 ```
 
-## Spatial Fused Lasso, Kampala (October 2021)
+# Spatial Fused Lasso, Kampala (October 2021)
 
 Spatial fused lasso applied to Kampala nighttime lights – October 2021 (single month, 2D)
 
-### 1. Extract matrix from raster
+## 1. Extract matrix from raster
 
 ```{r}
 v_kla <- terra::values(r_kampala_square) # column-major vector
@@ -158,7 +164,7 @@ v_kla_clean <- v_kla
 v_kla_clean[na_idx] <- 0
 ```
 
-### 2. Fit 2D fused lasso
+## 2. Fit 2D fused lasso
 
 ```{r}
 # fusedlasso2d builds the 2D difference operator internally
@@ -173,16 +179,16 @@ fit <- fusedlasso2d(
 fit
 ```
 
-### 3. Choose lambda
+## 3. Choose lambda
 
-#### Option A — Pick lambda visually from the path
+### Option A — Pick lambda visually from the path
 
 ```{r}
 plot(fit)
 # Look for the "elbow" where the solution stabilizes
 ```
 
-#### Option B — K-fold Cross-Validation
+### Option B — K-fold Cross-Validation
 
 ```{r}
 set.seed(123)
@@ -247,7 +253,7 @@ plot(log(lambdas_safe), cv_mse, type = "b", pch = 20, col = "darkgreen",
 abline(v = log(lambda_opt_cv), col = "red", lty = 2)
 ```
 
-#### Option C — Lambda Selection via BIC (Bayesian Information Criterion)
+### Option C — Lambda Selection via BIC (Bayesian Information Criterion)
 
 ```{r}
 # 1. Data Preparation
@@ -291,7 +297,7 @@ legend("topright", legend = paste("Best Lambda =", round(lambda_opt, 3)),
        col = "red", lty = 2, bty = "n")
 ```
 
-### 4. Extract smoothed coefficients
+## 4. Extract smoothed coefficients
 
 ```{r}
 beta_smooth <- coef(fit, lambda = lambda_opt)$beta
@@ -300,14 +306,14 @@ beta_smooth <- coef(fit, lambda = lambda_opt)$beta
 beta_smooth[na_idx] <- NA
 ```
 
-### 5. Rebuild raster
+## 5. Rebuild raster
 
 ```{r}
 r_smooth <- r_kampala_square
 terra::values(r_smooth) <- beta_smooth
 ```
 
-### 6. Visual comparison
+## 6. Visual comparison
 
 ```{r}
 par(mfrow = c(1, 2))
@@ -325,9 +331,9 @@ plot(r_smooth,
 par(mfrow = c(1, 1))
 ```
 
-## Temporal Fused Lasso – pixel-wise, Kampala 2021 (T=12)
+# Temporal Fused Lasso – pixel-wise, Kampala 2021 (T=12)
 
-### 1. Load and prep all months
+## 1. Load and prep all months
 
 ```{r}
 files_2021 <- list.files(
@@ -362,7 +368,7 @@ Y_clean <- Y
 Y_clean[na_idx, ] <- 0
 ```
 
-### 2. Fit temporal fused lasso pixel-wise
+## 2. Fit temporal fused lasso pixel-wise
 
 ```{r}
 beta_mat <- matrix(NA, nrow = n_cells, ncol = T)
@@ -392,7 +398,7 @@ for (i in 1:n_cells) {
 cat("Done. Non-NA pixels processed:", sum(!na_idx), "\n")
 ```
 
-### 3. Reconstruct smoothed raster stack
+## 3. Reconstruct smoothed raster stack
 
 ```{r}
 beta_mat[na_idx, ] <- NA
@@ -402,7 +408,7 @@ terra::values(r_smooth_stack) <- beta_mat
 names(r_smooth_stack) <- month.name
 ```
 
-### 4. Plot original vs smoothed
+## 4. Plot original vs smoothed
 
 ```{r}
 zlim <- c(0, max(Y, na.rm = TRUE))
@@ -425,7 +431,7 @@ for (t in 1:T) {
 par(mfrow = c(1, 1))
 ```
 
-### 5. Change detection
+## 5. Change detection
 
 ```{r}
 # Difference between consecutive smoothed months
@@ -445,7 +451,7 @@ r_change_binary <- r_changes_stack != 0
 r_n_changes <- sum(r_change_binary)
 ```
 
-### 6. Plot change maps
+## 6. Plot change maps
 
 ```{r}
 max_abs <- max(abs(terra::values(r_changes_stack)), na.rm = TRUE)
