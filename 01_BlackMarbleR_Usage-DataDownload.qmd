@@ -51,7 +51,7 @@ roi_sf <- gadm(country = "UGA", level=1, path = tempdir())
 ```
 
 ```{r}
-# roi_sf <- readRDS("./gadm41_UGA_1_pk.rds")
+# roi_sf <- readRDS("./data/gadm41_UGA_1_pk.rds")
 ```
 
 # Data Download - Country Level

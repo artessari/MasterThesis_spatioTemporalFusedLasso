@@ -1,5 +1,5 @@
 ---
-title: "Untitled"
+title: "1D and 2D Fused Lasso"
 format: pdf
 editor: visual
 ---
@@ -27,6 +27,10 @@ library(tidyverse)
 # Define region of interest (roi). The roi must be (1) an sf polygon and (2)
 # in the WGS84 (epsg:4326) coordinate reference system. 
 roi_sf <- gadm(country = "UGA", level=1, path = tempdir()) 
+```
+
+```{r}
+# roi_sf <- readRDS("./data/gadm41_UGA_1_pk.rds")
 ```
 
 ```{r}
