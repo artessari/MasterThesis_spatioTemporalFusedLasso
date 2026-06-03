@@ -25,7 +25,8 @@ format:
     code-block-font-size: \tiny
     geometry:
       - margin=15mm
-      - footskip=5mm
+      - bottom=20mm
+      - footskip=10mm
     # LaTeX configuration for special formatting (e.g., landscape orientation)
     header-includes:
       - \usepackage{pdflscape}
