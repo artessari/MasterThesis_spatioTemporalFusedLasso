@@ -104,9 +104,9 @@ months
 
 ## Process monthly rasters
 
--   **RDS (.Rds)**: R-native SpatRaster objects used for efficient analysis and modeling in R workflows
+- **RDS (.Rds)**: R-native SpatRaster objects used for efficient analysis and modeling in R workflows
 
--   **GeoTIFF (.tif)**: standard geospatial raster format for interoperability, visualization, and GIS software compatibility
+- **GeoTIFF (.tif)**: standard geospatial raster format for interoperability, visualization, and GIS software compatibility
 
 ```{r}
 #| message: false

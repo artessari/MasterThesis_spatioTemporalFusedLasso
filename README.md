@@ -8,13 +8,17 @@ Here is an overview of the key files and directories in this repository:
 .
 ├── _freeze/                                                                    # Cached computational results for Quarto documents
 ├── PDF-Documentation/                                                          # Final rendered documentation in PDF format
+├── data/                                                                       # Input data and study area
+│   ├── blackmarble_rasters/                                                    # Monthly nighttime light rasters stored as RDS (SpatRaster) objects
+│   ├── blackmarble_tif/                                                        # GeoTIFF versions of the monthly nighttime light rasters
+│   └── gadm41_UGA_1_pk.rds                                                     # Administrative boundaries for Uganda (GADM) 
 ├── renv/                                                                       # Local R library (package management environment)
 ├── .gitignore                                                                  # List of files and folders ignored by Git
 ├── .Rprofile                                                                   # Automatically activates the renv environment upon startup
 ├── _quarto.yml                                                                 # Project-wide Quarto configuration file
 ├── 00_How-to-Store-NASA-Credentials-as-Environment-Variables-in-R-Rproj.qmd    # Quarto source file: Guide on securely storing NASA credentials
-├── BlackMarbleR_Usage.Rmd                                                      # R Markdown script for testing the blackmarbler package
-├── fusedlasso_1D_2D.qmd                                                        # Quarto source file: Analysis using 1D and 2D fused lasso on spatio-temporal data
+├── 01_BlackMarbleR_Usage-DataDownload.qmd                                      # Quarto source file: Data download and preprocessing of Black Marble nighttime lights (script for testing the blackmarbler package)
+├── 02_fusedlasso_1D_2D.qmd                                                     # Quarto source file: Analysis using 1D and 2D fused lasso on spatio-temporal data
 ├── README.md                                                                   # Project documentation and setup guide
 ├── renv.lock                                                                   # Snapshot of package dependencies
 └── MasterThesis_spatioTemporalFusedLasso.Rproj                                 # RStudio project configuration file
@@ -22,7 +26,10 @@ Here is an overview of the key files and directories in this repository:
 
 ### Key Files
 
+- **`data/`**: Stores the Uganda study area boundaries (`gadm41_UGA_1_pk.rds`) and monthly Black Marble nighttime light datasets. Raster data are provided as RDS (`SpatRaster`) objects for analysis and modeling in R, while GeoTIFF files are included primarily for visualization purposes.
 - **`00_How-to-Store-NASA-Credentials-as-Environment-Variables-in-R-Rproj.qmd`**: Contains a step-by-step technical guide on how to configure `.Renviron` locally to securely access NASA data without hardcoding authentication parameters.
+- **`01_BlackMarbleR_Usage-DataDownload.qmd`**: Data download and preprocessing workflow for Black Marble nighttime lights. The script demonstrates how to retrieve monthly raster data using the `blackmarbler` package, process and save outputs as RDS (for analysis) and GeoTIFF (for visualization), and generate exploratory spatio-temporal summaries and maps.
+- **`02_fusedlasso_1D_2D.qmd`**: Analysis using 1D and 2D fused lasso models for spatio-temporal change detection in nighttime lights data. The file implements spatial smoothing via a 2D fused lasso applied to Kampala raster data, temporal smoothing across monthly observations using a 1D fused lasso framework, and derives pixel-wise change detection metrics to identify structural dynamics and temporal shifts in urban night-time illumination patterns.
 
 ------------------------------------------------------------------------
 
@@ -71,7 +78,7 @@ The following files are critical for environment stability:
 
 After installing new packages or changing package versions, the current state of the environment can be saved using:
 
-```r
+``` r
 renv::snapshot()
 ```
 
@@ -109,13 +116,13 @@ In RStudio, the compilation can be triggered by clicking the **Render** button (
 
 Alternatively, the document can be rendered directly via the terminal. Run the following command from the project root directory:
 
-```bash
+``` bash
 quarto render filename.qmd
 ```
 
 To process the entire project and update all reports simultaneously, the general command without specifying a file name can be used:
 
-```bash
+``` bash
 quarto render
 ```
 
@@ -129,9 +136,8 @@ Under the current configuration, rendering defaults to **PDF format**. To provid
 
 Quarto supports a wide variety of other output formats (e.g., HTML, MS Word, or ePub). To generate an interactive version for a web browser, the target format can be specified during rendering using the `--to` parameter:
 
-```bash
+``` bash
 quarto render filename.qmd --to html
 ```
 
 Other formats can be generated using analogous commands to adapt the report to different requirements.
-
