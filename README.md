@@ -9,9 +9,10 @@ Here is an overview of the key files and directories in this repository:
 ├── _freeze/                                                                    # Cached computational results for Quarto documents
 ├── PDF-Documentation/                                                          # Final rendered documentation in PDF format
 ├── data/                                                                       # Input data and study area
-│   ├── blackmarble_rasters/                                                    # Monthly nighttime light rasters stored as RDS (SpatRaster) objects
-│   ├── blackmarble_tif/                                                        # GeoTIFF versions of the monthly nighttime light rasters
-│   └── gadm41_UGA_1_pk.rds                                                     # Administrative boundaries for Uganda (GADM) 
+│   ├── blackmarble_rasters/                                                    # Monthly nighttime lights stored as SpatRaster (.rds)
+│   ├── blackmarble_tif/                                                        # GeoTIFF versions of monthly nighttime lights
+│   └── gadm/                                                                   # Administrative boundaries (GADM, Uganda)
+│       └── gadm41_UGA_1_pk.rds 
 ├── renv/                                                                       # Local R library (package management environment)
 ├── .gitignore                                                                  # List of files and folders ignored by Git
 ├── .Rprofile                                                                   # Automatically activates the renv environment upon startup

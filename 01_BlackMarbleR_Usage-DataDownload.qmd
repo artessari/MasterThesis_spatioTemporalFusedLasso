@@ -44,14 +44,17 @@ See <https://worldbank.github.io/blackmarbler/#usage>
 # ROI - Region Of Interest
 
 ```{r}
+#| echo: true
+#| eval: false
+
 ### ROI
 # Define region of interest (roi). The roi must be (1) an sf polygon and (2)
 # in the WGS84 (epsg:4326) coordinate reference system. 
-roi_sf <- gadm(country = "UGA", level=1, path = tempdir()) 
+roi_sf <- gadm(country = "UGA", level = 1, path = "data")
 ```
 
 ```{r}
-# roi_sf <- readRDS("./data/gadm41_UGA_1_pk.rds")
+roi_sf <- readRDS("./data/gadm/gadm41_UGA_1_pk.rds")
 ```
 
 # Data Download - Country Level
@@ -111,6 +114,8 @@ months
 ```{r}
 #| message: false
 #| warning: false
+#| echo: true
+#| eval: false
 
 # Loop over monthly time index
 for (m in months) {
@@ -256,6 +261,8 @@ image(m)
 m_plot <- t(m)[, nrow(m):1]
 image(m_plot)
 ```
+
+\newpage
 
 # Map of Annual Nighttime Lights
 
