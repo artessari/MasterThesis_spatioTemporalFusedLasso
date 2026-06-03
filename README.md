@@ -6,23 +6,23 @@ Here is an overview of the key files and directories in this repository:
 
 ```         
 .
-├── _freeze/                                                                    # Cached computational results for Quarto documents
 ├── PDF-Documentation/                                                          # Final rendered documentation in PDF format
+├── _freeze/                                                                    # Cached computational results for Quarto documents
 ├── data/                                                                       # Input data and study area
 │   ├── blackmarble_rasters/                                                    # Monthly nighttime lights stored as SpatRaster (.rds)
 │   ├── blackmarble_tif/                                                        # GeoTIFF versions of monthly nighttime lights
 │   └── gadm/                                                                   # Administrative boundaries (GADM, Uganda)
 │       └── gadm41_UGA_1_pk.rds 
 ├── renv/                                                                       # Local R library (package management environment)
-├── .gitignore                                                                  # List of files and folders ignored by Git
 ├── .Rprofile                                                                   # Automatically activates the renv environment upon startup
-├── _quarto.yml                                                                 # Project-wide Quarto configuration file
+├── .gitignore                                                                  # List of files and folders ignored by Git
 ├── 00_How-to-Store-NASA-Credentials-as-Environment-Variables-in-R-Rproj.qmd    # Quarto source file: Guide on securely storing NASA credentials
 ├── 01_BlackMarbleR_Usage-DataDownload.qmd                                      # Quarto source file: Data download and preprocessing of Black Marble nighttime lights (script for testing the blackmarbler package)
 ├── 02_fusedlasso_1D_2D.qmd                                                     # Quarto source file: Analysis using 1D and 2D fused lasso on spatio-temporal data
+├── MasterThesis_spatioTemporalFusedLasso.Rproj                                 # RStudio project configuration file
 ├── README.md                                                                   # Project documentation and setup guide
-├── renv.lock                                                                   # Snapshot of package dependencies
-└── MasterThesis_spatioTemporalFusedLasso.Rproj                                 # RStudio project configuration file
+├── _quarto.yml                                                                 # Project-wide Quarto configuration file
+└── renv.lock                                                                   # Snapshot of package dependencies
 ```
 
 ### Key Files
