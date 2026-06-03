@@ -78,9 +78,13 @@ dir.create(data_dir, showWarnings = FALSE, recursive = TRUE)
 h5_folder <- file.path(data_dir, "blackmarble_h5")
 dir.create(h5_folder, showWarnings = FALSE, recursive = TRUE)
 
-# folder for final rasters
-output_dir <- file.path(data_dir, "blackmarble_rasters")
-dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+# folder for RDS raster objects
+rds_dir <- file.path(data_dir, "blackmarble_rasters")
+dir.create(rds_dir, showWarnings = FALSE, recursive = TRUE)
+
+# folder for GeoTIFF exports
+tif_dir <- file.path(data_dir, "blackmarble_tif")
+dir.create(tif_dir, showWarnings = FALSE, recursive = TRUE)
 ```
 
 ## Time index
@@ -99,6 +103,10 @@ months
 \newpage
 
 ## Process monthly rasters
+
+-   **RDS (.Rds)**: R-native SpatRaster objects used for efficient analysis and modeling in R workflows
+
+-   **GeoTIFF (.tif)**: standard geospatial raster format for interoperability, visualization, and GIS software compatibility
 
 ```{r}
 #| message: false
@@ -135,8 +143,8 @@ for (m in months) {
     
     # Create output filenames based on YYYY-MM time string
     month_str <- gsub("-", "_", m)
-    tif_file <- file.path(output_dir, paste0("ntl_", month_str, ".tif"))
-    rds_file <- file.path(output_dir, paste0("ntl_", month_str, ".Rds"))
+    tif_file <- file.path(tif_dir, paste0("ntl_", month_str, ".tif"))
+    rds_file <- file.path(rds_dir, paste0("ntl_", month_str, ".Rds"))
     
     # Save processed raster outputs
     writeRaster(r_month, filename = tif_file, overwrite = TRUE)
