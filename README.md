@@ -11,6 +11,8 @@ Here is an overview of the key files and directories in this repository:
 ├── data/                                                                       # Input data and study area
 │   ├── blackmarble_rasters/                                                    # Monthly nighttime lights stored as SpatRaster (.rds)
 │   ├── blackmarble_tif/                                                        # GeoTIFF versions of monthly nighttime lights
+│   ├── blackmarble_quarterly_rasters/                                          # Quarterly aggregated rasters (.Rds)
+│   ├── blackmarble_quarterly_tif/                                              # Quarterly aggregated GeoTIFF outputs
 │   └── gadm/                                                                   # Administrative boundaries (GADM, Uganda)
 │       └── gadm41_UGA_1_pk.rds 
 ├── renv/                                                                       # Local R library (package management environment)
