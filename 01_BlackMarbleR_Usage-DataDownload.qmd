@@ -29,6 +29,7 @@ library(tidyterra)
 library(lubridate)
 library(gridExtra)
 library(purrr)
+library(dplyr)
 
 #### Define NASA bearer token
 bearer <- get_nasa_token(
@@ -171,7 +172,7 @@ This map shows monthly Black Marble nighttime light intensity for a selected per
 
 ```{r}
 # Read raster for a given month
-file_rds <- file.path(getwd(), "data", "blackmarble_rasters", "ntl_2020_03.Rds")
+file_rds <- file.path(rds_dir, "ntl_2020_03.Rds")
 r <- readRDS(file_rds)
 
 #### Prep data
@@ -268,8 +269,8 @@ image(m_plot)
 
 ```{r}
 all_files <- list.files(
-  file.path(getwd(), "data", "blackmarble_rasters"),
-  pattern = "ntl_.*\\.Rds$",
+  rds_dir,
+  pattern = "\\.Rds$",
   full.names = TRUE
 )
 
@@ -338,4 +339,149 @@ plot_year <- function(files_year) {
 ```{r}
 target_year <- "2021"
 plot_year(all_files[sapply(all_files, get_year) == target_year])
+```
+
+# Raster Processing: Monthly to Quarterly Aggregation
+
+Monthly Black Marble nighttime light rasters are aggregated into calendar quarters (Q1–Q4). For each quarter, the three corresponding monthly rasters are combined using the pixel-wise mean, preserving the original radiance units while reducing short-term temporal variability.
+
+- **Q1:** January–February–March
+
+- **Q2:** April–May–June
+
+- **Q3:** July–August–September
+
+- **Q4:** October–November–December
+
+```{r}
+# folder for quarterly RDS rasters
+quarter_rds_dir <- file.path(data_dir, "blackmarble_quarterly_rasters")
+dir.create(quarter_rds_dir, showWarnings = FALSE, recursive = TRUE)
+
+# folder for quarterly GeoTIFF rasters
+quarter_tif_dir <- file.path(data_dir, "blackmarble_quarterly_tif")
+dir.create(quarter_tif_dir, showWarnings = FALSE, recursive = TRUE)
+```
+
+```{r}
+all_files <- list.files(
+  rds_dir,
+  pattern = "\\.Rds$",
+  full.names = TRUE
+)
+
+# Extract metadata (year and month) from filenames
+# Expected format: ntl_YYYY_MM.Rds
+get_info <- function(f) {
+  
+  x <- gsub("ntl_|\\.Rds", "", basename(f))
+  parts <- strsplit(x, "_")[[1]]
+  
+  data.frame(
+    file = f,
+    year = as.integer(parts[1]),
+    month = as.integer(parts[2])
+  )
+}
+
+# Build metadata table
+meta <- bind_rows(lapply(all_files, get_info))
+meta %>% mutate(file = basename(file))
+```
+
+```{r}
+# Years to aggregate
+target_years <- c(2013, 2020, 2021)
+
+# Filter to selected years only
+meta <- meta %>%
+  filter(year %in% target_years)
+
+# Assign calendar quarters
+meta$quarter <- case_when(
+  meta$month %in% c(1, 2, 3)    ~ "Q1",
+  meta$month %in% c(4, 5, 6)    ~ "Q2",
+  meta$month %in% c(7, 8, 9)    ~ "Q3",
+  meta$month %in% c(10, 11, 12) ~ "Q4"
+)
+
+# Unique year-quarter combinations
+groups <- unique(meta[, c("year", "quarter")])
+groups
+```
+
+```{r}
+# Empty data frame to store NA statistics per quarter
+na_stats <- data.frame()
+
+# Loop over each year-quarter group
+for (i in seq_len(nrow(groups))) {
+  
+  current_year <- groups$year[i]
+  current_quarter <- groups$quarter[i]
+  
+  cat("Processing:", current_year, current_quarter, "...\n")
+  
+  # Select files for current quarter
+  files_group <- meta$file[
+    meta$year == current_year &
+      meta$quarter == current_quarter
+  ]
+  
+  # Skip incomplete quarters (must have 3 months)
+  if (length(files_group) != 3) {
+    cat("Skipping incomplete quarter:", current_year, current_quarter, "\n")
+    next
+  }
+  
+  # Read monthly rasters
+  r_list <- lapply(files_group, readRDS)
+  
+  # Create SpatRaster stack
+  r_stack <- rast(r_list)
+  
+  # Compute quarterly mean (preserves radiance units)
+  r_quarter <- app(r_stack, mean, na.rm = TRUE)
+  
+  # Compute NA statistics
+  na_stats <- rbind(
+    na_stats,
+    data.frame(
+      year = current_year,
+      quarter = current_quarter,
+      n_cells = ncell(r_quarter),
+      na_pixels = sum(is.na(values(r_quarter))),
+      valid_pixels = sum(!is.na(values(r_quarter))),
+      na_percentage = 100 * sum(is.na(values(r_quarter))) / ncell(r_quarter)
+    )
+  )
+  
+  # Define output file base name
+  out_base_rds <- file.path(
+    quarter_rds_dir,
+    paste0("ntl_", current_year, "_", current_quarter)
+  )
+  
+  out_base_tif <- file.path(
+    quarter_tif_dir,
+    paste0("ntl_", current_year, "_", current_quarter)
+  )
+  
+  # Save RDS object
+  saveRDS(r_quarter, paste0(out_base_rds, ".Rds"))
+  
+  # Export GeoTIFF
+  writeRaster(
+    r_quarter,
+    paste0(out_base_tif, ".tif"),
+    overwrite = TRUE
+  )
+  
+  cat("Saved:", current_year, current_quarter, "\n")
+}
+```
+
+```{r}
+# Final summary table
+na_stats
 ```
