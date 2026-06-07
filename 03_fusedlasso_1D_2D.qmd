@@ -19,10 +19,22 @@ knitr::opts_chunk$set(
 
 options(tikzDefaultEngine = 'luatex')
 
+#### Setup
+# Load packages
 library(genlasso)
 library(geodata)
 library(tidyterra)
 library(tidyverse)
+
+# Folders
+data_dir <- file.path(getwd(), "data")
+h5_folder <- file.path(data_dir, "blackmarble_h5")
+
+rds_dir <- file.path(data_dir, "blackmarble_rasters")
+tif_dir <- file.path(data_dir, "blackmarble_tif")
+
+quarter_rds_dir <- file.path(data_dir, "blackmarble_quarterly_rasters")
+quarter_tif_dir <- file.path(data_dir, "blackmarble_quarterly_tif")
 ```
 
 # ROI - Region Of Interest
@@ -36,7 +48,7 @@ roi_sf <- readRDS("./data/gadm/gadm41_UGA_1_pk.rds")
 
 ```{r}
 # Read raster for a given month
-file_rds <- file.path(getwd(), "data", "blackmarble_rasters", "ntl_2020_03.Rds")
+file_rds <- file.path(rds_dir, "ntl_2020_03.Rds")
 r <- readRDS(file_rds)
 
 #### Prep data
