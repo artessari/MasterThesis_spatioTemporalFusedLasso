@@ -193,7 +193,7 @@ kampala <- roi_sf[roi_sf$NAME_1 == "Kampala"]
 str(kampala)
 ```
 
-## Single-Date Raster Extraction for Kampala
+## Single-Month Raster Extraction for Kampala
 
 ```{r}
 file_rds <- file.path(rds_dir, "ntl_2021_03.Rds")
@@ -215,7 +215,7 @@ terra::crs(kampala)
 
 ```{r}
 kampala_ext <- terra::ext(kampala)
-kampala_ext <- terra::extend(kampala_ext, 0)  # padding (in degrees)
+# kampala_ext <- terra::extend(kampala_ext, 0)  # padding (in degrees)
 
 r_kampala_square <- terra::crop(r, kampala_ext)
 ```
@@ -268,4 +268,118 @@ plot(kampala_buffer, add = TRUE, border = "blue", lwd = 2)
 plot(r_filled, main = "Nighttime Lights after Local NA Imputation",
      cex.main = 0.9)
 plot(kampala_buffer, add = TRUE, border = "blue", lwd = 2)
+```
+
+# Spatial Consistency Check and Missing Data Analysis on Fixed Kampala Bounding Box
+
+```{r}
+na_kampala_stats <- data.frame()
+
+for (f in list.files(quarter_rds_dir, full.names = TRUE, pattern = "\\.Rds$")) {
+  
+  # Read raster
+  r <- readRDS(f)
+  
+  # Log transform
+  r_log <- log1p(r)
+  
+  # Fixed Kampala bounding box (SQUARE GRID)
+  kampala_ext <- terra::ext(kampala)
+  r_kampala_square <- terra::crop(r_log, kampala_ext)
+  
+  # NA count on square grid
+  na_count <- terra::global(is.na(r_kampala_square), "sum")[1,1]
+  
+  # Store results
+  na_kampala_stats <- rbind(
+    na_kampala_stats,
+    data.frame(
+      file = basename(f),
+      na_pixels = na_count,
+      n_cells = terra::ncell(r_kampala_square),
+      na_percentage = 100 * na_count / terra::ncell(r_kampala_square)
+    )
+  )
+}
+
+na_kampala_stats
+```
+
+# Kampala Quarterly Raster Processing
+
+```{r}
+# Folder to store Kampala-processed rasters
+kampala_dir <- file.path(data_dir, "kampala")
+dir.create(kampala_dir, showWarnings = FALSE, recursive = TRUE)
+```
+
+```{r}
+# List all quarterly raster files (RDS format)
+quarter_files <- list.files(
+  quarter_rds_dir,
+  pattern = "\\.Rds$",
+  full.names = TRUE
+)
+```
+
+```{r}
+kampala_files <- list()
+
+for (f in quarter_files) {
+  
+  cat("Processing:", basename(f), "\n")
+  
+  # Read raster
+  r <- readRDS(f)
+  
+  # Log transform
+  r_log <- log1p(r)
+  
+  # Fixed Kampala bounding box (SQUARE GRID)
+  kampala_ext <- terra::ext(kampala)
+  r_kampala_square <- terra::crop(r_log, kampala_ext)
+  
+  # NA check BEFORE imputation
+  na_before <- terra::global(is.na(r_kampala_square), "sum")[1,1]
+  
+  # Impute ONLY if NA exist
+  if (na_before > 0) {
+    
+    r_local_mean <- terra::focal(
+      r_kampala_square,
+      w = matrix(1, 3, 3),
+      fun = mean,
+      na.rm = TRUE,
+      fillvalue = NA
+    )
+    
+    r_kampala_square <- terra::ifel(
+      is.na(r_kampala_square),
+      r_local_mean,
+      r_kampala_square
+    )
+  }
+  
+  # NA check AFTER imputation
+  na_after <- terra::global(is.na(r_kampala_square), "sum")[1,1]
+  
+  # Output name
+  out_name <- gsub("\\.Rds", "", basename(f))
+  
+  out_file <- file.path(
+    kampala_dir,
+    paste0(out_name, "_kampala.Rds")
+  )
+  
+  saveRDS(r_kampala_square, out_file)
+  
+  kampala_files[[f]] <- out_file
+  
+  cat(
+    "Saved:", basename(out_file),
+    "| NA before:", na_before,
+    "| NA after:", na_after,
+    "\n"
+  )
+}
 ```
