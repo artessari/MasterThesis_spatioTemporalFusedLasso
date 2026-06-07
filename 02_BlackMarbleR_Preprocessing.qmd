@@ -21,6 +21,7 @@ options(tikzDefaultEngine = 'luatex')
 #### Setup
 # Load packages
 library(geodata)
+library(terra)
 library(tidyterra)
 library(tidyverse)
 
@@ -114,10 +115,10 @@ for (i in seq_len(nrow(groups))) {
   cat("Processing:", current_year, current_quarter, "...\n")
   
   # Select files for current quarter
-  files_group <- meta$file[
-    meta$year == current_year &
-      meta$quarter == current_quarter
-  ]
+  files_group <- meta %>%
+    filter(year == current_year, quarter == current_quarter) %>%
+    arrange(month) %>%
+    pull(file)
   
   # Skip incomplete quarters (must have 3 months)
   if (length(files_group) != 3) {
@@ -135,15 +136,17 @@ for (i in seq_len(nrow(groups))) {
   r_quarter <- app(r_stack, mean, na.rm = TRUE)
   
   # Compute NA statistics
+  na_pixels <- global(r_quarter, fun = function(x) sum(is.na(x)))[1,1]
+  
   na_stats <- rbind(
     na_stats,
     data.frame(
       year = current_year,
       quarter = current_quarter,
       n_cells = ncell(r_quarter),
-      na_pixels = sum(is.na(values(r_quarter))),
-      valid_pixels = sum(!is.na(values(r_quarter))),
-      na_percentage = 100 * sum(is.na(values(r_quarter))) / ncell(r_quarter)
+      na_pixels = na_pixels,
+      valid_pixels = ncell(r_quarter) - na_pixels,
+      na_percentage = 100 * na_pixels / ncell(r_quarter)
     )
   )
   
