@@ -10,8 +10,8 @@ editor: visual
 #| include: false
 
 knitr::opts_chunk$set(
-  fig.width = 9,  
-  fig.height = 7,    
+  fig.width = 10,  
+  fig.height = 5,    
   fig.align = "center",
   out.width = "100%",
   dpi = 300
@@ -35,123 +35,91 @@ tif_dir <- file.path(data_dir, "blackmarble_tif")
 
 quarter_rds_dir <- file.path(data_dir, "blackmarble_quarterly_rasters")
 quarter_tif_dir <- file.path(data_dir, "blackmarble_quarterly_tif")
+
+kampala_dir <- file.path(data_dir, "kampala")
 ```
 
-# ROI - Region Of Interest
+## Loading Processed Kampala Rasters
 
 ```{r}
-### ROI
-roi_sf <- readRDS("./data/gadm/gadm41_UGA_1_pk.rds")
-```
-
-# Map of Nighttime Lights
-
-```{r}
-# Read raster for a given month
-file_rds <- file.path(rds_dir, "ntl_2020_03.Rds")
-r <- readRDS(file_rds)
-
-#### Prep data
-r <- r %>% terra::mask(roi_sf)
-
-## Distribution is skewed, so log
-r[] <- log(r[] + 1)
-
-# Extract month and year from filename
-filename <- basename(file_rds)
-parts <- strsplit(gsub("ntl_|\\.Rds", "", filename), "_")[[1]]  # "YYYY_MM"
-year_val <- parts[1]
-month_val <- parts[2]
-
-# Convert numeric month to month name
-month_name <- month.name[as.numeric(month_val)]
-
-##### Map
-ggplot() +
-  geom_spatraster(data = r) +
-  scale_fill_gradient2(low = "black",
-                       mid = "yellow",
-                       high = "red",
-                       midpoint = 2.5,
-                       na.value = "transparent") +
-  labs(title = paste("Nighttime Lights:", month_name, year_val)) +
-  coord_sf() +
-  theme_void() +
-  theme(plot.title = element_text(face = "bold", hjust = 0.5),
-        legend.position = "none")
-```
-
-## Raster summary statistics
-
-```{r}
-terra::summary(r)
-```
-
-```{r}
-terra::global(r, "mean", na.rm = TRUE)
-```
-
-```{r}
-sum(r[] == 0, na.rm = TRUE)
-```
-
-# Matrix
-
-```{r}
-terra::nrow(r)
-terra::ncol(r)
-terra::ncell(r)
-```
-
-```{r}
-# Count the total number of missing values (NAs)
-terra::global(is.na(r), "sum")
-```
-
-```{r}
-v <- terra::values(r)
-
-m <- matrix(
-  v,
-  nrow = terra::nrow(r),
-  ncol = terra::ncol(r),
-  byrow = TRUE
+processed_files <- list.files(
+  kampala_dir, 
+  pattern = "_kampala\\.Rds$", 
+  full.names = TRUE
 )
 
-dim(m)
+kampala_rasters <- list()
+
+# Loop through and read each file
+for (f in processed_files) {
+  # Use the file name as the list key
+  file_key <- basename(f)
+  kampala_rasters[[file_key]] <- readRDS(f)
+}
+
+# The rasters are now accessible via the list, for example:
+# kampala_rasters$ntl_2013_Q1_kampala.Rds
 ```
 
-```{r}
-m_plot <- t(m)[, nrow(m):1]
-image(m_plot)
-```
-
-# Kampala
+## Descriptive Statistics and NA Summary
 
 ```{r}
-kampala <- dplyr::filter(roi_sf, NAME_1 == "Kampala")
-```
+raster_summary <- data.frame(
+  File_Name = character(),
+  Total_Cells = numeric(),
+  NA_Count = numeric(),
+  NA_Percentage = numeric(),
+  Min_Value = numeric(),
+  Max_Value = numeric(),
+  Mean_Value = numeric(),
+  SD_Value = numeric(),
+  stringsAsFactors = FALSE
+)
 
-```{r}
-r_kampala <- r %>%
-  terra::crop(kampala) %>%
-  terra::mask(kampala)
-```
+# Loop through the loaded rasters to calculate metrics
+for (name in names(kampala_rasters)) {
+  
+  # Extract the current SpatRaster
+  current_raster <- kampala_rasters[[name]]
+  
+  # Calculate total number of cells
+  total_cells <- terra::ncell(current_raster)
+  
+  # Calculate exact number of NA cells
+  na_count <- terra::global(is.na(current_raster), "sum")[1,1]
+  
+  # Calculate percentage of NA cells
+  na_pct <- (na_count / total_cells) * 100
+  
+  # Calculate minimum value excluding NA
+  min_val <- terra::global(current_raster, "min", na.rm = TRUE)[1,1]
+  
+  # Calculate maximum value excluding NA
+  max_val <- terra::global(current_raster, "max", na.rm = TRUE)[1,1]
+  
+  # Calculate mean value excluding NA
+  mean_val <- terra::global(current_raster, "mean", na.rm = TRUE)[1,1]
+  
+  # Calculate standard deviation excluding NA
+  sd_val <- terra::global(current_raster, "sd", na.rm = TRUE)[1,1]
+  
+  # Combine results into a temporary row
+  row_data <- data.frame(
+    File_Name = name,
+    Total_Cells = total_cells,
+    NA_Count = na_count,
+    NA_Percentage = round(na_pct, 2),
+    Min_Value = round(min_val, 4),
+    Max_Value = round(max_val, 4),
+    Mean_Value = round(mean_val, 4),
+    SD_Value = round(sd_val, 4)
+  )
+  
+  # Append to the main summary data frame
+  raster_summary <- rbind(raster_summary, row_data)
+}
 
-```{r}
-kampala_buffer <- terra::buffer(kampala, 10)
-
-r_kampala_square <- terra::crop(r, kampala_buffer)
-```
-
-```{r}
-# Count the total number of missing values (NAs) within the rectangular bounding box of the Kampala buffered area
-terra::global(is.na(r_kampala_square), "sum")
-```
-
-```{r}
-plot(r_kampala_square)
-plot(kampala_buffer, add = TRUE, border = "blue", lwd = 2)
+raster_summary
 ```
 
 # Spatial Fused Lasso, Kampala (October 2021)

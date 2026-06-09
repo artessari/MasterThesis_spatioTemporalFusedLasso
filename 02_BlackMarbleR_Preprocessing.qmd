@@ -37,13 +37,13 @@ tif_dir <- file.path(data_dir, "blackmarble_tif")
 
 Monthly Black Marble nighttime light rasters are aggregated into calendar quarters (Q1–Q4). For each quarter, the three corresponding monthly rasters are combined using the pixel-wise mean, preserving the original radiance units while reducing short-term temporal variability.
 
-- **Q1:** January–February–March
+-   **Q1:** January–February–March
 
-- **Q2:** April–May–June
+-   **Q2:** April–May–June
 
-- **Q3:** July–August–September
+-   **Q3:** July–August–September
 
-- **Q4:** October–November–December
+-   **Q4:** October–November–December
 
 ```{r}
 # folder for quarterly RDS rasters
@@ -263,11 +263,11 @@ par(mfrow = c(1, 2))
 
 plot(r_kampala_square, main = "Original Kampala Nighttime Lights",
      cex.main = 0.9)
-plot(kampala_buffer, add = TRUE, border = "blue", lwd = 2)
+plot(kampala, add = TRUE, border = "blue", lwd = 2)
 
 plot(r_filled, main = "Nighttime Lights after Local NA Imputation",
      cex.main = 0.9)
-plot(kampala_buffer, add = TRUE, border = "blue", lwd = 2)
+plot(kampala, add = TRUE, border = "blue", lwd = 2)
 ```
 
 # Spatial Consistency Check and Missing Data Analysis on Fixed Kampala Bounding Box
