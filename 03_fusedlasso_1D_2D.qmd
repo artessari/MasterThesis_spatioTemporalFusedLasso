@@ -19,6 +19,8 @@ knitr::opts_chunk$set(
 
 options(tikzDefaultEngine = 'luatex')
 
+rm(list = ls())
+
 #### Setup
 # Load packages
 library(genlasso)
@@ -59,6 +61,12 @@ for (f in processed_files) {
 
 # The rasters are now accessible via the list, for example:
 # kampala_rasters$ntl_2013_Q1_kampala.Rds
+```
+
+```{r}
+# Load the official administrative boundaries
+roi_sf <- readRDS("./data/gadm/gadm41_UGA_1_pk.rds")
+kampala_border <- roi_sf[roi_sf$NAME_1 == "Kampala"]
 ```
 
 ## Descriptive Statistics and NA Summary
@@ -120,6 +128,97 @@ for (name in names(kampala_rasters)) {
 }
 
 raster_summary
+```
+
+## Quarterly Nighttime Lights Grid Map
+
+```{r}
+# Setup layout grid 
+num_plots <- length(kampala_rasters)
+num_cols <- 4
+num_rows <- ceiling(num_plots / num_cols)
+
+par(mfrow = c(num_rows, num_cols), mar = c(1.5, 1.5, 1.5, 1), oma = c(0, 0, 3, 0))
+
+for (name in names(kampala_rasters)) {
+  
+  # Extract the current SpatRaster object
+  current_raster <- kampala_rasters[[name]]
+  
+  # Extract the temporal period dynamically from the file name
+  quarter_label <- gsub("ntl_|_kampala\\.Rds", "", name)
+  quarter_label <- gsub("_", " ", quarter_label)
+  
+  # Plot the nighttime light intensity raster with the period title
+  plot(
+    current_raster, 
+    main = quarter_label,
+    cex.main = 1.1
+  )
+  
+  # Overlay the official administrative boundary line
+  plot(kampala_border, add = TRUE, border = "blue", lwd = 1.5)
+}
+
+mtext(
+  "Kampala Nighttime Lights", 
+  side = 3, 
+  outer = TRUE, 
+  line = 1, 
+  cex = 0.9, 
+  font = 2
+)
+```
+
+```{r}
+# Create a single SpatRaster with one layer per period
+kampala_stack <- rast(kampala_rasters)
+
+# Extract temporal labels dynamically from layer names
+quarter_labels <- names(kampala_stack)
+quarter_labels <- gsub("ntl_|_kampala\\.Rds", "", quarter_labels)
+quarter_labels <- gsub("_", " ", quarter_labels)
+
+names(kampala_stack) <- quarter_labels
+
+# Plot nighttime light intensity rasters
+ggplot() +
+  
+  # Display nighttime light intensity for each period
+  geom_spatraster(data = kampala_stack) +
+  
+  # Overlay the official administrative boundary
+  geom_spatvector(
+    data = kampala_border,
+    fill = NA,
+    color = "blue",
+    linewidth = 0.4
+  ) +
+  
+  facet_wrap(~lyr, ncol = 8) +
+  
+  scale_fill_viridis_c(
+    option = "viridis",
+    na.value = "transparent",
+    name = "NTL"
+  ) +
+  
+  # Use spatial coordinates
+  coord_sf() +
+  
+  labs(title = "Kampala Nighttime Lights") +
+  
+  theme_minimal() +
+  theme(
+    panel.spacing = unit(0, "mm"),
+    plot.title = element_text(
+      hjust = 0.5,
+      face = "bold"
+    ),
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank()
+  )
 ```
 
 # Spatial Fused Lasso, Kampala (October 2021)

@@ -18,6 +18,8 @@ knitr::opts_chunk$set(
 
 options(tikzDefaultEngine = 'luatex')
 
+rm(list = ls())
+
 #### Setup
 # Load packages
 library(geodata)
@@ -37,13 +39,13 @@ tif_dir <- file.path(data_dir, "blackmarble_tif")
 
 Monthly Black Marble nighttime light rasters are aggregated into calendar quarters (Q1–Q4). For each quarter, the three corresponding monthly rasters are combined using the pixel-wise mean, preserving the original radiance units while reducing short-term temporal variability.
 
--   **Q1:** January–February–March
+- **Q1:** January–February–March
 
--   **Q2:** April–May–June
+- **Q2:** April–May–June
 
--   **Q3:** July–August–September
+- **Q3:** July–August–September
 
--   **Q4:** October–November–December
+- **Q4:** October–November–December
 
 ```{r}
 # folder for quarterly RDS rasters
@@ -217,7 +219,7 @@ terra::crs(kampala)
 kampala_ext <- terra::ext(kampala)
 # kampala_ext <- terra::extend(kampala_ext, 0)  # padding (in degrees)
 
-r_kampala_square <- terra::crop(r, kampala_ext)
+r_kampala_square <- terra::crop(r_log, kampala_ext)
 ```
 
 ## Local Spatial Imputation of Missing Pixels
