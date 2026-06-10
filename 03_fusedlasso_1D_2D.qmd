@@ -335,7 +335,7 @@ Where:
 
 - **Imputation Proxy Bias:** Forcing $y_i = 0$ for test pixels introduces artificial sharp edges into the training phase, forcing the solver to smooth out artificial artificial contrasts.
 
-- **Interpretation:** The resulting curve provides a numerical approximation for optimization. The selected $\lambda_{\text{opt\_cv}}$ should be checked alongside the visual elbow method to ensure structural coherence of Kampala's urban boundaries.
+- **Interpretation:** The resulting curve provides a numerical approximation for optimization. The selected $\lambda_{\text{opt_cv}}$ should be checked alongside the visual elbow method to ensure structural coherence of Kampala's urban boundaries.
 
 ```{r}
 #| echo: true
@@ -416,6 +416,24 @@ text(x = log(lambda_opt_cv) + 0.1,
 
 ### Option C — Lambda Selection via BIC (Bayesian Information Criterion)
 
+The Bayesian Information Criterion (BIC) balances the goodness of fit against the structural complexity of the spatial graph. The canonical objective criteria is defined as:
+
+$$\text{BIC}(\lambda) = n \log\left(\frac{\text{RSS}(\lambda)}{n}\right) + \text{df}(\lambda) \log(n)$$
+
+Where the specific metric functions expand as:
+
+- **Residual Sum of Squares (**$\text{RSS}(\lambda)$): $\sum_{i=1}^{n} (y_i - \hat{\beta}_i(\lambda))^2$, evaluating the empirical error variance.
+
+- **Degrees of Freedom (**$\text{df}(\lambda)$): In a 2D Fused Lasso setup, the degrees of freedom equal the exact number of separated, constant spatial blocks (connected components) generated on the Kampala grid at a given penalty level $\lambda$.
+
+**Why BIC is Superior to K-fold CV for Spatial Rasters**
+
+- **Preservation of Topology:** BIC operates globally on the original, uncompromised raster grid. It eliminates the need to randomly mask or zero-out pixels, avoiding the creation of artificial spatial boundaries.
+
+- **Exact Graph Degrees of Freedom:** The `genlasso` solver computes the analytical degrees of freedom at every singular optimization step. BIC directly leverages this topological information, penalizing models that create too many fragmented urban fragments.
+
+- **Computational Efficiency:** Unlike Cross-Validation, which requires re-running the heavy 2D solver $K$ separate times, BIC is evaluated post-hoc on the full solution path object in a fraction of a second.
+
 ```{r}
 # 1. Data Preparation
 # Convert the cleaned values to a standard numeric vector to ensure compatibility
@@ -436,19 +454,21 @@ rss <- colSums(residuals^2)
 df_vec <- fit$df
 
 # 5. Estimate Error Variance (sigma^2)
-# Typically estimated using the residuals of the least penalized model (end of path)
-sig2_est <- rss[length(rss)] / (n - df_vec[length(df_vec)])
+# Estimated using the residuals of the least penalized model at the start of the path
+sig2_est <- rss[1] / (n - df_vec[1])
 
 # 6. Compute BIC Score
-# Formula: RSS / (n * sigma^2) + (log(n) * df) / n
-bic_values <- rss / (n * sig2_est) + (log(n) * df_vec) / n
+# Canonical formula: n * log(RSS / n) + df * log(n)
+bic_values <- n * log(rss / n) + df_vec * log(n)
 
 # 7. Identify Optimal Lambda
 best_idx <- which.min(bic_values)
 lambda_opt <- fit$lambda[best_idx]
 
 cat("Optimal Lambda selected (BIC):", lambda_opt, "\n")
+```
 
+```{r}
 # 8. Visualization of the selection process
 plot(log(fit$lambda), bic_values, type = "l", col = "darkblue", lwd = 2,
      xlab = "log(lambda)", ylab = "BIC Score",
