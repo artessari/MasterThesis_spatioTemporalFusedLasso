@@ -20,7 +20,7 @@ Here is an overview of the key files and directories in this repository:
 ├── .gitignore                                                                  # List of files and folders ignored by Git
 ├── 00_How-to-Store-NASA-Credentials-as-Environment-Variables-in-R-Rproj.qmd    # Quarto source file: Guide on securely storing NASA credentials
 ├── 01_BlackMarbleR_Usage-DataDownload.qmd                                      # Quarto source file: Data download and preprocessing of Black Marble nighttime lights (script for testing the blackmarbler package)
-├── 02_BlackMarbleR_Preprocessing.qmd                                           # Quarto source file:
+├── 02_BlackMarbleR_Preprocessing.qmd                                           # Quarto source file: Monthly to quarterly raster aggregation, spatial missing data imputation via focal filter, and ROI (Kampala) bounding box extraction
 ├── 03_fusedlasso_1D_2D.qmd                                                     # Quarto source file: Analysis using 1D and 2D fused lasso on spatio-temporal data
 ├── MasterThesis_spatioTemporalFusedLasso.Rproj                                 # RStudio project configuration file
 ├── README.md                                                                   # Project documentation and setup guide
@@ -33,7 +33,7 @@ Here is an overview of the key files and directories in this repository:
 - **`data/`**: Stores the Uganda study area boundaries (`gadm41_UGA_1_pk.rds`) and monthly Black Marble nighttime light datasets. Raster data are provided as RDS (`SpatRaster`) objects for analysis and modeling in R, while GeoTIFF files are included primarily for visualization purposes.
 - **`00_How-to-Store-NASA-Credentials-as-Environment-Variables-in-R-Rproj.qmd`**: Contains a step-by-step technical guide on how to configure `.Renviron` locally to securely access NASA data without hardcoding authentication parameters.
 - **`01_BlackMarbleR_Usage-DataDownload.qmd`**: Data download and preprocessing workflow for Black Marble nighttime lights. The script demonstrates how to retrieve monthly raster data using the `blackmarbler` package, process and save outputs as RDS (for analysis) and GeoTIFF (for visualization), and generate exploratory spatio-temporal summaries and maps.
-- **`02_BlackMarbleR_Preprocessing.qmd`**:
+- **`02_BlackMarbleR_Preprocessing.qmd`**: Processes monthly Black Marble rasters into quarterly aggregates (Q1–Q4) using pixel-wise means to minimize temporal noise. It then extracts a fixed bounding box for the Kampala Region of Interest (ROI), applies a log-transformation ($\log1p$), and handles spatial data gaps by performing a local imputation using a $3 \times 3$ moving window (focal mean) that replaces only missing pixels while preserving original valid radiance signals.
 - **`03_fusedlasso_1D_2D.qmd`**: Analysis using 1D and 2D fused lasso models for spatio-temporal change detection in nighttime lights data. The file implements spatial smoothing via a 2D fused lasso applied to Kampala raster data, temporal smoothing across monthly observations using a 1D fused lasso framework, and derives pixel-wise change detection metrics to identify structural dynamics and temporal shifts in urban night-time illumination patterns.
 
 ------------------------------------------------------------------------
