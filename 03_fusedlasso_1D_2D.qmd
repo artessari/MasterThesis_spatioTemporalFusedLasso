@@ -561,9 +561,39 @@ plot(r_smooth,
 
 \newpage
 
-# Temporal Fused Lasso – pixel-wise, Kampala 2021 (T=12)
+# Temporal Fused Lasso – Pixel-Wise, Kampala 2021 (T=4)
 
-## 1. Load and prep all months
+### Mathematical Formulation
+
+The Temporal Fused Lasso (1D total variation denoising) models the trajectory of nighttime light intensity for each geographical cell independently across chronological intervals. For a given pixel, let $y \in \mathbb{R}^T$ be the vector of observed log-transformed radiance values across $T = 4$ quarters. The optimization problem estimates the smoothed temporal signal $\hat{\beta} \in \mathbb{R}^T$ by minimizing:
+
+$$\hat{\beta} = \arg\min_{\beta} \left\{ \frac{1}{2} \sum_{t=1}^{T} (y_t - \beta_t)^2 + \lambda \sum_{t=1}^{T-1} |\beta_{t+1} - \beta_t| \right\}$$
+
+The objective criteria are defined by two competing dynamics:
+
+- **Data Fidelity Term** ($\frac{1}{2} \sum_{t=1}^{T} (y_t - \beta_t)^2$): Measures the squared Euclidean distance between the observed log-transformed quarterly radiance ($y_t$) and the estimated structural trajectory ($\beta_t$) at each time step $t$. This component anchors the model to the temporal reality of each pixel, preventing the regularization path from deviating too far from the empirical satellite observations recorded across the quarters.
+
+- **Temporal Sparsity Penalty:** $\sum_{t=1}^{T-1} |\beta_{t+1} - \beta_t|$, an $L_1$ penalty applied to successive quarterly variations. It forces sequential quarters to share identical values ($\beta_{t+1} = \beta_t$) unless a sharp, structurally significant change in light emissions occurs.
+
+- **Tuning Parameter** ($\lambda \ge 0$): Controls the structural trade-off between tracking every quarterly fluctuation ($\lambda = 0$) and forcing global temporal homogeneity ($\lambda \to \infty$).
+
+### Structural Matrix Operators ($D$ Matrix)
+
+For $T = 4$ quarters, the first-order forward difference penalty matrix $D \in \mathbb{R}^{(T-1) \times T}$ is explicitly constructed by the 1D solver as:
+
+$$D = \begin{bmatrix} -1 &  1 &  0 &  0 \\ 0 & -1 &  1 &  0 \\ 0 &  0 & -1 &  1 \end{bmatrix}$$
+
+Multiplying this structural topology against the parameter vector yields the absolute differences for the active penalization path:
+
+$$\|D\beta\|_1 = |\beta_{\text{Q2}} - \beta_{\text{Q1}}| + |\beta_{\text{Q3}} - \beta_{\text{Q2}}| + |\beta_{\text{Q4}} - \beta_{\text{Q3}}|$$
+
+### Methodological Implications of the Quarter-Based Setup
+
+- **Anisotropy over Time:** Unlike moving averages or spline smoothers that smooth out transitions smoothly, the 1D Fused Lasso isolates sharp shocks or sudden structural drops/jumps in economic activity between quarters, maintaining perfect piecewise constant steps.
+
+- **Pixel-Wise Independence:** The model evaluates each coordinate cell on its own timeline. This allows the discovery of localized temporal trends (such as a single neighborhood undergoing rapid infrastructure expansion during Q3) without leaking information into adjacent spatial pixels.
+
+## 1. Load and prep all quarters
 
 ```{r}
 files_2021 <- list.files(
@@ -574,57 +604,67 @@ files_2021 <- list.files(
 ```
 
 ```{r}
-# 1. Load the files directly using readRDS
+# 1. Load raster files
 r_list <- lapply(files_2021, readRDS)
 
-# 2. Create the SpatRaster stack directly
+# 2. Create a multi-layer SpatRaster
 r_stack <- terra::rast(r_list)
 
-# 3. Assign dynamic quarter labels as layer names (e.g., "2021 Q1")
+# 3. Assign quarter labels to layers
 layer_names <- gsub("ntl_|_kampala\\.Rds", "", basename(files_2021))
 names(r_stack) <- gsub("_", " ", layer_names)
 
 # 4. Extract spatial and temporal dimensions
-nrow_k  <- terra::nrow(r_stack)
-ncol_k  <- terra::ncol(r_stack)
-n_cells <- terra::ncell(r_stack)
-T_layers <- terra::nlyr(r_stack) # Renamed to T_layers to avoid masking T (TRUE)
+nrow_k   <- terra::nrow(r_stack)
+ncol_k   <- terra::ncol(r_stack)
+n_cells  <- terra::ncell(r_stack)
+T_layers <- terra::nlyr(r_stack)
 
-# 5. Extract data matrix and handle any remaining spatial boundaries
-Y <- terra::values(r_stack)        # Matrix of size [n_cells x T_layers]
-na_idx <- apply(Y, 1, anyNA)
-Y_clean <- Y
-Y_clean[na_idx, ] <- 0
+# 5. Extract pixel-by-quarter matrix
+Y <- terra::values(r_stack)  # Matrix of size [n_cells x T_layers]
 ```
 
 ## 2. Fit temporal fused lasso pixel-wise
 
 ```{r}
+# Initialize the storage matrix matching original raster cells
 beta_mat <- matrix(NA, nrow = n_cells, ncol = T_layers)
 
-for (i in 1:n_cells) {
-  if (na_idx[i]) next
+for (i in seq_len(n_cells)) {
   
-  # 1. Fit the 1D fused lasso (trendfilter ord=0)
-  fit_i <- trendfilter(y = Y_clean[i, ], ord = 0)
+  # Extract the raw temporal vector for the current pixel
+  y_i <- as.numeric(Y[i, ])
   
-  # 2. Calculate BIC manually
-  rss  <- colSums((Y_clean[i, ] - fit_i$beta)^2)
-  df   <- fit_i$df
-  sig2 <- rss[length(rss)] / (T_layers - df[length(df)])
-  if (sig2 == 0) sig2 <- 1e-6
-  bic_i <- rss / (T_layers * sig2) + (log(T_layers) * df) / T_layers
+  # Fit the 1D fused lasso (Equivalent to trendfilter with ord=0)
+  fit_i <- genlasso::trendfilter(y = y_i, ord = 0)
   
-  # 3. Find optimal lambda and extract coefficients
-  best_idx      <- which.min(bic_i)
-  lambda_i      <- fit_i$lambda[best_idx]
-  beta_mat[i, ] <- coef(fit_i, lambda = lambda_i)$beta
+  # Extract full path arrays to bypass nested loops entirely
+  beta_path <- as.matrix(fit_i$beta) 
+  df_vec    <- fit_i$df              
+  
+  # Compute Residual Sum of Squares vectorized across all lambdas at once
+  residuals <- sweep(beta_path, 1, y_i, "-")
+  rss_vec   <- colSums(residuals^2)
+  
+  # Robust estimation of Error Variance via First Differences
+  # This provides a stable scale anchor across the entire solution path
+  sig2_est <- mean(diff(y_i)^2) / 2
+  if (sig2_est <= 0) sig2_est <- 1e-6
+  
+  # Compute the stable canonical BIC score vector
+  bic_vec <- (rss_vec / sig2_est) + (df_vec * log(T_layers))
+  
+  # Select optimal lambda step based on minimum score
+  best_idx <- which.min(bic_vec)
+  
+  # Store the regularized coefficients inside the results matrix
+  beta_mat[i, ] <- beta_path[, best_idx]
   
   # Progress tracker
-  if (i %% 100 == 0) cat("Pixel", i, "of", n_cells, "\n")
+  if (i %% 500 == 0) cat("Pixel", i, "of", n_cells, "\n")
 }
 
-cat("Done. Non-NA pixels processed:", sum(!na_idx), "\n")
+cat("Done. Pixels processed:", n_cells, "\n")
 ```
 
 ## 3. Reconstruct smoothed raster stack
@@ -632,6 +672,10 @@ cat("Done. Non-NA pixels processed:", sum(!na_idx), "\n")
 ```{r}
 # Create the smooth SpatRaster stack copying the structure of r_stack
 r_smooth_stack <- r_stack
+
+# Check consistency between raster cells and beta matrix
+stopifnot(nrow(beta_mat) == terra::ncell(r_stack))
+stopifnot(ncol(beta_mat) == terra::nlyr(r_stack))
 
 # Assign the estimated beta coefficients back to the raster cells
 terra::values(r_smooth_stack) <- beta_mat
@@ -643,28 +687,28 @@ names(r_smooth_stack) <- names(r_stack)
 ## 4. Plot original vs smoothed
 
 ```{r}
-# Define global intensity limits based on the actual data
-zlim <- c(0, max(Y, na.rm = TRUE))
+# Define global intensity limits based on the raster values
+zlim <- c(0, max(terra::values(r_stack), na.rm = TRUE))
 
-# Adjust grid layout for 4 quarters (2 rows of 4 columns: Original vs Smooth)
+# Adjust grid layout for 4 quarters (2 rows: original vs smoothed)
 par(mfrow = c(2, 4), mar = c(1.5, 1.5, 1.5, 1), oma = c(0, 0, 3, 0))
 
 # Plot Original Quarterly Rasters
-for (t in 1:T_layers) {
+for (t in seq_len(T_layers)) {
   plot(r_stack[[t]],
-       main   = names(r_stack)[t],
-       col    = hcl.colors(100, "YlOrRd"),
-       range  = zlim,
+       main = names(r_stack)[t],
+       col = hcl.colors(100, "YlOrRd"),
+       range = zlim,
        legend = FALSE,
        cex.axis = 0.7)
 }
 
 # Plot Smoothed Quarterly Rasters
-for (t in 1:T_layers) {
+for (t in seq_len(T_layers)) {
   plot(r_smooth_stack[[t]],
-       main   = paste0(names(r_smooth_stack)[t], " (smooth)"),
-       col    = hcl.colors(100, "YlOrRd"),
-       range  = zlim,
+       main = paste0(names(r_smooth_stack)[t], " (smooth)"),
+       col = hcl.colors(100, "YlOrRd"),
+       range = zlim,
        legend = FALSE,
        cex.axis = 0.7)
 }
@@ -673,43 +717,48 @@ for (t in 1:T_layers) {
 ## 5. Change detection
 
 ```{r}
-# Difference between consecutive smoothed months
+# Difference between consecutive smoothed quarters
 r_changes_list <- vector("list", T_layers - 1)
+
 for (t in 2:T_layers) {
   r_changes_list[[t - 1]] <- r_smooth_stack[[t]] - r_smooth_stack[[t - 1]]
 }
+
 r_changes_stack <- terra::rast(r_changes_list)
 
-# Generate quarterly transition names (e.g., "Q1->Q2", "Q2->Q3")
+# Generate quarterly transition names (robust version)
 quarters <- names(r_smooth_stack)
+
 names(r_changes_stack) <- paste0(
-  gsub(".* ", "", quarters[1:(T_layers - 1)]), 
-  "->", 
-  gsub(".* ", "", quarters[2:T_layers])
+  substr(quarters[1:(T_layers - 1)], nchar(quarters[1:(T_layers - 1)]) - 1, nchar(quarters[1:(T_layers - 1)])),
+  "->",
+  substr(quarters[2:T_layers], nchar(quarters[2:T_layers]) - 1, nchar(quarters[2:T_layers]))
 )
 
-# Binary change map: TRUE = change detected, FALSE = fused (no change)
+# Binary change map (TRUE = change, FALSE = no change)
 r_change_binary <- r_changes_stack != 0
 
-# Count how many months each pixel changed
-r_n_changes <- sum(r_change_binary)
+# Number of changes per pixel 
+r_n_changes <- terra::app(r_change_binary, sum, na.rm = TRUE)
 ```
 
 ## 6. Plot change maps
 
 ```{r}
+# Maximum absolute change for symmetric color scaling
 max_abs <- max(abs(terra::values(r_changes_stack)), na.rm = TRUE)
 
-# Continuous change map
-# Set to 1 row and 3 columns since we have exactly 3 quarterly transitions
+# Continuous change maps (quarter transitions)
 par(mfrow = c(1, 3), mar = c(1.5, 1.5, 1.5, 1), oma = c(0, 0, 3, 0))
-for (t in 1:(T_layers - 1)) {
+
+for (t in seq_len(T_layers - 1)) {
   plot(r_changes_stack[[t]],
        main  = names(r_changes_stack)[t],
        col   = hcl.colors(100, "RdBu"),
        range = c(-max_abs, max_abs),
        cex.axis = 0.7)
 }
+
 par(mfrow = c(1, 1), mar = c(5, 4, 4, 2) + 0.1, oma = c(0, 0, 0, 0))
 
 # Number of changes per pixel
@@ -717,47 +766,34 @@ plot(r_n_changes,
      main = "Number of temporal changes per pixel (2021)",
      col  = hcl.colors(12, "YlOrRd"))
 
-# Total change magnitude per pixel (sum of absolute differences)
-r_total_change <- sum(abs(r_changes_stack), na.rm = TRUE)
+# Total change magnitude per pixel 
+r_total_change <- terra::app(abs(r_changes_stack), sum, na.rm = TRUE)
+
 plot(r_total_change,
      main = "Total change magnitude per pixel (2021)",
      col  = hcl.colors(100, "YlOrRd"))
 ```
 
 ```{r}
+# Maximum absolute change for symmetric scaling
 max_abs <- max(abs(terra::values(r_changes_stack)), na.rm = TRUE)
 
-# Generate a symmetric RdBu palette with exactly 101 colors
+# Build symmetric RdBu palette
 rd_bu_palette <- hcl.colors(101, "RdBu")
 
-# Inject pure yellow exactly at the center (index 51) for zero-change pixels
+# Replace center color with yellow (zero change)
 rd_bu_palette[51] <- "#FFFF00"
 
-# Continuous change map
+# Plot only the continuous change maps
 par(mfrow = c(1, 3), mar = c(1.5, 1.5, 1.5, 1), oma = c(0, 0, 3, 0))
-for (t in 1:(T_layers - 1)) {
+
+for (t in seq_len(T_layers - 1)) {
   plot(r_changes_stack[[t]],
        main  = names(r_changes_stack)[t],
        col   = rd_bu_palette,
        range = c(-max_abs, max_abs),
        cex.axis = 0.7)
 }
+
 par(mfrow = c(1, 1), mar = c(5, 4, 4, 2) + 0.1, oma = c(0, 0, 0, 0))
-
-# Number of changes per pixel
-n_change_palette <- hcl.colors(12, "YlOrRd")
-n_change_palette[1] <- "#FFFF00" 
-
-plot(r_n_changes,
-     main = "Number of temporal changes per pixel (2021)",
-     col  = n_change_palette)
-
-# Total change magnitude per pixel (sum of absolute differences)
-total_change_palette <- hcl.colors(100, "YlOrRd")
-total_change_palette[1] <- "#FFFF00"
-
-r_total_change <- sum(abs(r_changes_stack), na.rm = TRUE)
-plot(r_total_change,
-     main = "Total change magnitude per pixel (2021)",
-     col  = total_change_palette)
 ```
