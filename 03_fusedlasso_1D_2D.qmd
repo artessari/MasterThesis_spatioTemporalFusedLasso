@@ -225,37 +225,82 @@ ggplot() +
 
 Spatial fused lasso applied to Kampala nighttime lights – Q3 2021 (single quarter, 2D)
 
+### Mathematical Formulation
+
+The 2D Fused Lasso (also known as total variation denoising on a grid) estimates the regularized nighttime light intensity vector $\hat{\beta}$ by solving the following optimization problem:
+
+$$ \hat{\beta} = \arg\min_{\beta} \left\{ \frac{1}{2} \|y - \beta\|_2^2 + \lambda \|D\beta\|_1 \right\} $$
+
+The objective function consists of two structural components:
+
+- **Data Fidelity Term (**$\frac{1}{2} \|y - \beta\|_2^2$): Measures the squared Euclidean distance between the observed log-transformed pixel intensities ($y$) and the estimated smooth signals ($\beta$). This component prevents the model from over-smoothing and deviating too far from the actual satellite observations.
+
+- **Sparsity Penalty (**$\|D\beta\|_1$): Applies an $L_1$ penalty (absolute sum) to the differences between spatially adjacent pixels.
+
+- **Tuning Parameter (**$\lambda \ge 0$): Controls the trade-off between keeping the original data structure ($\lambda = 0$) and forcing spatial homogeneity ($\lambda \to \infty$).
+
+### Matrix Structure and Dimension Mapping
+
+The `fusedlasso2d` function automatically constructs the structured penalization matrix $D$.
+
+**Spatial Adjacency Penalty**
+
+The penalty terms expand both horizontally and vertically across the Kampala grid coordinates:
+
+$$ \|D\beta\|_1 = \sum_{\text{Horizontal Pairs}} |\beta_{\text{row}, \text{col}} - \beta_{\text{row}, \text{col}+1}| + \sum_{\text{Vertical Pairs}} |\beta_{\text{row}, \text{col}} - \beta_{\text{row}+1, \text{col}}| $$
+
+**Parameter Alignment (Row-Major vs. Column-Major)**
+
+- **Data Input:** `terra::values()` extracts raster cells in **Row-Major** order (row by row, left to right).
+
+- **Solver Assumption:** `genlasso::fusedlasso2d()` natively expects data in **Column-Major** order (column by column).
+
+- **Correction Alignment:** Setting `dim1 = ncol_k` and `dim2 = nrow_k` correctly aligns the geometric boundaries of the 2D grid. This alignment ensures that horizontal and vertical neighbors in the mathematical graph match the true geographical neighbors in Kampala.
+
 ## 1. Extract matrix from raster
 
 ```{r}
 r_kampala_square <- kampala_rasters$ntl_2021_Q3_kampala.Rds
 
-v_kla <- terra::values(r_kampala_square) # column-major vector
+# Extract pixel values as a continuous numeric vector
+v_kla_clean <- as.numeric(terra::values(r_kampala_square))
+
+# Store the spatial grid dimensions
 nrow_k <- terra::nrow(r_kampala_square)
 ncol_k <- terra::ncol(r_kampala_square)
-
-# Track NA positions (from mask) to restore them later
-na_idx <- is.na(v_kla)
-
-# Replace NAs with 0 for the solver (genlasso can't handle NAs)
-v_kla_clean <- v_kla
-v_kla_clean[na_idx] <- 0
 ```
 
 ## 2. Fit 2D fused lasso
 
 ```{r}
+# Fit the 2D Fused Lasso model
 # fusedlasso2d builds the 2D difference operator internally
+# dim1 maps to columns and dim2 maps to rows 
+# because terra extracts values row-by-row (Row-Major order)
 fit <- fusedlasso2d(
   y    = as.numeric(v_kla_clean),
-  dim1 = nrow_k,
-  dim2 = ncol_k
+  dim1 = ncol_k,
+  dim2 = nrow_k
 )
 ```
 
 ```{r}
 fit
 ```
+
+The interpretation of the `genlasso` output path relies on the following core behaviors:
+
+- **Spatial Clustering (Piecewise Constant Patches):** The $L_1$ norm on the differences forces many adjacent pixel differences to become *exactly zero* ($\beta_i - \beta_j = 0 \implies \beta_i = \beta_j$). This process segments the Kampala metropolitan area into homogeneous economic or urban development blocks ("patches").
+
+- **Edge and Boundary Detection:** Pairs of adjacent pixels where $\beta_i - \beta_j \neq 0$ represent sharp spatial boundaries. In the context of nighttime lights, these boundaries isolate sudden transitions, such as moving from high-density commercial centers to unlit informal settlements or rural fringes.
+
+- **Solution Path Behavior (**$\lambda$ Mechanics):
+
+  - **Low** $\lambda$: High data fidelity. This setting retains localized noise, specific structural variations, and background satellite emissions.
+
+  - **Intermediate** $\lambda$: Optimal denoising. This configuration removes micro-level noise while preserving macro-regional clusters of economic activity and infrastructure development.
+
+  - **High** $\lambda$: Global smoothing. This parameter choice fuses all pixels together until Kampala collapses into a single uniform average light intensity value.
 
 ## 3. Choose lambda
 
@@ -267,6 +312,30 @@ plot(fit)
 ```
 
 ### Option B — K-fold Cross-Validation
+
+For each fold $k \in \{1, \dots, K\}$, the training vector $y^{(-k)}$ is modified by setting the test indices to zero. The model estimates the regularized coefficients $\hat{\beta}^{(-k)}(\lambda)$ along the safe lambda path grid:
+
+$$\hat{\beta} \text{ extracted at } \lambda_j \implies \text{MSE}_k(\lambda_j) = \frac{1}{|T_k|} \sum_{i \in T_k} \left( y_i - \hat{\beta}^{(-k)}_i(\lambda_j) \right)^2$$
+
+The optimal tuning parameter $\lambda_{\text{opt_cv}}$ minimizes the average Cross-Validation Mean Squared Error ($\text{CV}_{\text{MSE}}$):
+
+$$\text{CV}_{\text{MSE}}(\lambda_j) = \frac{1}{K} \sum_{k=1}^{K} \text{MSE}_k(\lambda_j) \quad \implies \quad \lambda_{\text{opt\_cv}} = \arg\min_{\lambda_j} \text{CV}_{\text{MSE}}(\lambda_j)$$
+
+Where:
+
+- $T_k$: The set of pixel indices assigned to the $k$-th test fold.
+
+- $|T_k|$: The total number of evaluation pixels within the active test fold.
+
+- $y_i$: The baseline observed log-transformed light intensity of pixel $i$.
+
+**Methodological Limitations**
+
+- **Graph Disruption:** Random spatial sampling breaks the mathematical continuity of the 2D spatial adjacency matrix $D$.
+
+- **Imputation Proxy Bias:** Forcing $y_i = 0$ for test pixels introduces artificial sharp edges into the training phase, forcing the solver to smooth out artificial artificial contrasts.
+
+- **Interpretation:** The resulting curve provides a numerical approximation for optimization. The selected $\lambda_{\text{opt\_cv}}$ should be checked alongside the visual elbow method to ensure structural coherence of Kampala's urban boundaries.
 
 ```{r}
 #| echo: true
@@ -284,21 +353,22 @@ max_min_lambda <- 0
 for (k in 1:K) {
   test_idx  <- which(folds == k)
   y_train   <- v_kla_clean
-  # Setting test values to 0 is a common proxy for CV in genlasso
-  y_train[test_idx] <- 0 
   
+  # Set test values to 0 as an operational proxy for CV
+  y_train[test_idx] <- 0  
+  
+  # Fit the model with corrected dimensions (dim1 = columns, dim2 = rows)
   fold_fits[[k]] <- fusedlasso2d(
     y    = as.numeric(y_train),
-    dim1 = nrow_k,
-    dim2 = ncol_k
+    dim1 = ncol_k,
+    dim2 = nrow_k
   )
   
-  # Track the highest 'minimum lambda' across all folds to find a safe range
+  # Track the highest minimum lambda across all folds to find a safe evaluation range
   max_min_lambda <- max(max_min_lambda, min(fold_fits[[k]]$lambda))
 }
 
 # 2. Define a safe grid of lambdas
-# We only pick lambdas from the original fit that are > max_min_lambda
 lambdas_safe <- fit$lambda[fit$lambda >= max_min_lambda]
 
 # 3. Compute CV Errors
@@ -308,7 +378,6 @@ for (k in 1:K) {
   test_idx <- which(folds == k)
   
   for (j in seq_along(lambdas_safe)) {
-    # Use tryCatch to skip lambdas that might still cause issues in specific folds
     res <- tryCatch({
       beta_j <- coef(fold_fits[[k]], lambda = lambdas_safe[j])$beta
       mean((v_kla_clean[test_idx] - beta_j[test_idx])^2)
@@ -321,17 +390,28 @@ for (k in 1:K) {
 }
 
 # 4. Identify Optimal Lambda
-# Divide by K to get the average MSE
 cv_mse <- cv_errors / K
 lambda_opt_cv <- lambdas_safe[which.min(cv_mse)]
 
 cat("Optimal Lambda (CV):", lambda_opt_cv, "\n")
+```
 
-# 5. Plotting the CV Curve
+```{r}
+# 5. Plot the CV Curve
 plot(log(lambdas_safe), cv_mse, type = "b", pch = 20, col = "darkgreen",
      xlab = "log(lambda)", ylab = "CV Mean Squared Error",
      main = "Cross-validation for 2D Fused Lasso")
 abline(v = log(lambda_opt_cv), col = "red", lty = 2)
+
+lambda_label <- paste0("Optimal log(lambda) = ", round(log(lambda_opt_cv), 3),
+                       "\n(lambda = ", round(lambda_opt_cv, 3), ")")
+
+text(x = log(lambda_opt_cv) + 0.1, 
+     y = min(cv_mse) + 0.9 * (max(cv_mse) - min(cv_mse)), 
+     labels = lambda_label, 
+     col = "red", 
+     adj = 0,         
+     cex = 0.85)
 ```
 
 ### Option C — Lambda Selection via BIC (Bayesian Information Criterion)
