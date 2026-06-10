@@ -221,6 +221,8 @@ ggplot() +
   )
 ```
 
+\newpage
+
 # Spatial Fused Lasso, Kampala (Q3 2021)
 
 Spatial fused lasso applied to Kampala nighttime lights – Q3 2021 (single quarter, 2D)
@@ -317,9 +319,9 @@ For each fold $k \in \{1, \dots, K\}$, the training vector $y^{(-k)}$ is modifie
 
 $$\hat{\beta} \text{ extracted at } \lambda_j \implies \text{MSE}_k(\lambda_j) = \frac{1}{|T_k|} \sum_{i \in T_k} \left( y_i - \hat{\beta}^{(-k)}_i(\lambda_j) \right)^2$$
 
-The optimal tuning parameter $\lambda_{\text{opt_cv}}$ minimizes the average Cross-Validation Mean Squared Error ($\text{CV}_{\text{MSE}}$):
+The optimal tuning parameter $\lambda_{\mathit{opt\_cv}}$ minimizes the average Cross-Validation Mean Squared Error ($\text{CV}_{\text{MSE}}$):
 
-$$\text{CV}_{\text{MSE}}(\lambda_j) = \frac{1}{K} \sum_{k=1}^{K} \text{MSE}_k(\lambda_j) \quad \implies \quad \lambda_{\text{opt\_cv}} = \arg\min_{\lambda_j} \text{CV}_{\text{MSE}}(\lambda_j)$$
+$$\text{CV}_{\text{MSE}}(\lambda_j) = \frac{1}{K} \sum_{k=1}^{K} \text{MSE}_k(\lambda_j) \quad \implies \quad \lambda_{\mathit{opt\_cv}} = \arg\min_{\lambda_j} \text{CV}_{\text{MSE}}(\lambda_j)$$
 
 Where:
 
@@ -335,7 +337,7 @@ Where:
 
 - **Imputation Proxy Bias:** Forcing $y_i = 0$ for test pixels introduces artificial sharp edges into the training phase, forcing the solver to smooth out artificial artificial contrasts.
 
-- **Interpretation:** The resulting curve provides a numerical approximation for optimization. The selected $\lambda_{\text{opt_cv}}$ should be checked alongside the visual elbow method to ensure structural coherence of Kampala's urban boundaries.
+- **Interpretation:** The resulting curve provides a numerical approximation for optimization. The selected $\lambda_{\mathit{opt\_cv}}$ should be checked alongside the visual elbow method to ensure structural coherence of Kampala's urban boundaries.
 
 ```{r}
 #| echo: true
@@ -509,11 +511,11 @@ beta_smooth <- coef(fit, lambda = selected_lambda)$beta
 
 The assignment operation overwrites the internal data matrix containing the empirical radiance values while leaving the spatial metadata fully intact. Mathematically, the vector transformation maps the continuous parameter space back to a two-dimensional coordinate framework defined by the spatial bounding box:
 
-$$\mathbf{B} \in \mathbb{R}^{\text{nrow_k} \times \text{ncol_k}}$$
+$$\mathbf{B} \in \mathbb{R}^{\mathit{nrow\_k} \times \mathit{ncol\_k}}$$
 
 Where:
 
-- $\text{nrow_k}$ and $\text{ncol_k}$ represent the structural dimensions extracted from `r_kampala_square`.
+- $\mathit{nrow\_k}$ and $\mathit{ncol\_k}$ represent the structural dimensions extracted from `r_kampala_square`.
 
 - Each element $\beta^*_i$ from the `beta_smooth` vector is wrapped into the spatial grid following the row-major ordering system utilized by the `terra` environment.
 
@@ -556,6 +558,8 @@ plot(r_smooth,
      col   = hcl.colors(100, "Viridis"),
      range = c(0, max(v_kla_clean)))
 ```
+
+\newpage
 
 # Temporal Fused Lasso – pixel-wise, Kampala 2021 (T=12)
 
