@@ -397,6 +397,9 @@ cat("Optimal Lambda (CV):", lambda_opt_cv, "\n")
 ```
 
 ```{r}
+#| echo: true
+#| eval: false
+
 # 5. Plot the CV Curve
 plot(log(lambdas_safe), cv_mse, type = "b", pch = 20, col = "darkgreen",
      xlab = "log(lambda)", ylab = "CV Mean Squared Error",
@@ -480,18 +483,61 @@ legend("topright", legend = paste("Best Lambda =", round(lambda_opt, 3)),
 
 ## 4. Extract smoothed coefficients
 
-```{r}
-beta_smooth <- coef(fit, lambda = lambda_opt)$beta
+Because the input vector $y \in \mathbb{R}^N$ was completely cleaned of missing values during the early preprocessing phase, the optimization domain directly covers the full coordinate space of the spatial grid. The extraction of the estimated parameter vector $\beta^*(\lambda)$ simplifies to a direct identity assignment:
 
-# Restore NAs
-beta_smooth[na_idx] <- NA
+$$\beta^*_i = \hat{\beta}_i(\lambda_{\text{selected}}) \quad \forall i \in \{1, \dots, N\}$$
+
+Where $N$ represents both the complete length of `v_kla_clean` and the exact total pixel count within the structural dimensions of the Kampala raster.
+
+**Methodological Implications**
+
+- **Computational Integrity:** The absence of spatial masking means that every single element inside `beta_smooth` maps sequentially to a specific row and column in the geographic grid without index displacement.
+
+- **Direct Raster Coercion:** This streamlined setup allows the vector to be reshaped into a matrix or converted directly into a spatial object (`terra::rast`) in the next step, ensuring that the spatial orientation of the nighttime light clusters remains mathematically uncorrupted.
+
+```{r}
+# Define which optimal lambda to use for the final map extraction
+# Change to lambda_opt (BIC) or use a manual value from the visual elbow (e.g., 2.5)
+selected_lambda <- lambda_opt 
+
+# 1. Extract the smoothed beta coefficients from the solution path
+# Since there are no NAs, beta_smooth maps 1:1 to the clean spatial grid length
+beta_smooth <- coef(fit, lambda = selected_lambda)$beta
 ```
 
 ## 5. Rebuild raster
 
+The assignment operation overwrites the internal data matrix containing the empirical radiance values while leaving the spatial metadata fully intact. Mathematically, the vector transformation maps the continuous parameter space back to a two-dimensional coordinate framework defined by the spatial bounding box:
+
+$$\mathbf{B} \in \mathbb{R}^{\text{nrow_k} \times \text{ncol_k}}$$
+
+Where:
+
+- $\text{nrow_k}$ and $\text{ncol_k}$ represent the structural dimensions extracted from `r_kampala_square`.
+
+- Each element $\beta^*_i$ from the `beta_smooth` vector is wrapped into the spatial grid following the row-major ordering system utilized by the `terra` environment.
+
+**Methodological Implications**
+
+- **Geographic Alignment:** By cloning `r_kampala_square`, the newly generated `r_smooth` automatically inherits the original Coordinate Reference System (CRS) and geographic extent. This guarantees that the smoothed map will overlap with other vector layers of Kampala (such as `kampala_border`).
+
+- **Downstream Analysis:** The object `r_smooth` is now a fully functional spatial raster. It can be exported to a standard GeoTIFF file via `terra::writeRaster(r_smooth, "kampala_smoothed.tif")` or integrated into further spatial regressions.
+
 ```{r}
+# 1. Clone the spatial structure of the square Kampala raster
 r_smooth <- r_kampala_square
+
+# 2. Automated Integrity Check
+# Verify that the vector length matches the total number of raster cells (45 * 38 = 1710)
+# This explicitly prevents any geometric distortion or spatial pixel shifting
+stopifnot(length(beta_smooth) == terra::ncell(r_smooth))
+
+# 3. Assign the estimated smoothed coefficients to the new raster object
+# Since dimensions match perfectly, values are mapped sequentially without distortion
 terra::values(r_smooth) <- beta_smooth
+
+# 4. Print the spatial summary to verify data alignment
+print(r_smooth)
 ```
 
 ## 6. Visual comparison
@@ -501,15 +547,14 @@ par(mfrow = c(1, 2))
 
 plot(r_kampala_square,
      main  = "Original (log NTL)",
-     col   = hcl.colors(100, "YlOrRd"),
-     range = c(0, max(v_kla, na.rm = TRUE)))
+     col   = hcl.colors(100, "Viridis"),
+     range = c(0, max(v_kla_clean)))
+plot(kampala_border, add = TRUE, border = "blue", lwd = 1.5)
 
 plot(r_smooth,
-     main = paste0("Fused Lasso (Lambda = ", round(lambda_opt, 3), ")"),
-     col  = hcl.colors(100, "YlOrRd"),
-     range = c(0, max(v_kla, na.rm = TRUE)))
-
-par(mfrow = c(1, 1))
+     main  = paste0("Fused Lasso (Lambda = ", round(selected_lambda, 3), ")"),
+     col   = hcl.colors(100, "Viridis"),
+     range = c(0, max(v_kla_clean)))
 ```
 
 # Temporal Fused Lasso – pixel-wise, Kampala 2021 (T=12)
