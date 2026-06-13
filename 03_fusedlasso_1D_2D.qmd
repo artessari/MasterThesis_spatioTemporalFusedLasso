@@ -443,7 +443,7 @@ text(x = log(lambda_opt_cv) + 0.1,
      cex = 0.85)
 ```
 
-### Option B — Lambda Selection via BIC (Bayesian Information Criterion)
+### Option B(1) — Lambda Selection via BIC (Bayesian Information Criterion)
 
 The Bayesian Information Criterion (BIC) balances the goodness of fit against the structural complexity of the spatial graph. The canonical objective criteria is defined as:
 
@@ -465,46 +465,111 @@ Where the specific metric functions expand as:
 
 ```{r}
 # 1. Data Preparation
-# Convert the cleaned values to a standard numeric vector to ensure compatibility
 y_vec <- as.numeric(v_kla_clean)
 n <- length(y_vec)
 
 # 2. Extract Coefficient Matrix
-# fit$beta contains the fitted values for each step in the solution path
 beta_mat <- as.matrix(fit$beta) 
 
 # 3. Calculate Residual Sum of Squares (RSS)
-# Using sweep to subtract y_vec from each column of the beta matrix
-residuals <- sweep(beta_mat, 1, y_vec, "-")
-rss <- colSums(residuals^2)
+rss <- colSums((beta_mat - y_vec)^2)
 
 # 4. Degrees of Freedom
-# genlasso provides the df (number of connected components) for each lambda
 df_vec <- fit$df
 
-# 5. Estimate Error Variance (sigma^2)
-# Estimated using the residuals of the least penalized model at the start of the path
-sig2_est <- rss[1] / (n - df_vec[1])
-
-# 6. Compute BIC Score
-# Canonical formula: n * log(RSS / n) + df * log(n)
+# 5. Compute BIC Score (Canonical Formula)
+# n * log(RSS / n) + df * log(n)
 bic_values <- n * log(rss / n) + df_vec * log(n)
 
-# 7. Identify Optimal Lambda
+# 6. Identify Optimal Lambda
 best_idx <- which.min(bic_values)
-lambda_opt <- fit$lambda[best_idx]
+lambda_opt_bic <- fit$lambda[best_idx]
 
-cat("Optimal Lambda selected (BIC):", lambda_opt, "\n")
+cat("Optimal Lambda selected (BIC):", lambda_opt_bic, "\n")
 ```
 
 ```{r}
-# 8. Visualization of the selection process
+# 7. Visualization of the selection process
 plot(log(fit$lambda), bic_values, type = "l", col = "darkblue", lwd = 2,
      xlab = "log(lambda)", ylab = "BIC Score",
      main = "Optimal Lambda Selection via BIC")
-abline(v = log(lambda_opt), col = "red", lty = 2)
-legend("topright", legend = paste("Best Lambda =", round(lambda_opt, 3)), 
-       col = "red", lty = 2, bty = "n")
+abline(v = log(lambda_opt_bic), col = "red", lty = 2)
+
+lambda_label_bic <- paste0("Optimal log(lambda) = ", round(log(lambda_opt_bic), 3),
+                           "\n(lambda = ", round(lambda_opt_bic, 3), ")")
+
+text(x = log(lambda_opt_bic) + 0.1, 
+     y = min(bic_values) + 0.9 * (max(bic_values) - min(bic_values)), 
+     labels = lambda_label_bic, 
+     col = "red", 
+     adj = 0,         
+     cex = 0.85)
+```
+
+### Option B(2) — Lambda Selection via Sparsity-Stable BIC
+
+The Bayesian Information Criterion (BIC) balances the goodness of fit against the structural complexity of the spatial graph. To ensure numerical stability along the 2D Fused Lasso solution path and avoid overfitting caused by the asymptotic behavior of the canonical log-residual metric on high-resolution data, this method utilizes the sparsity-stable formulation of the criterion:
+
+$$\text{BIC}(\lambda) = \frac{\text{RSS}(\lambda)}{\hat{\sigma}^2} + \text{df}(\lambda) \log(n)$$
+
+Where the specific metric functions expand as:
+
+- **Residual Sum of Squares (**$\text{RSS}(\lambda)$): $\sum_{i=1}^{n} (y_i - \hat{\beta}_i(\lambda))^2$, evaluating the empirical error variance at penalty level $\lambda$.
+
+- **Error Variance Estimate (**$\hat{\sigma}^2$): $\frac{\text{RSS}(\lambda_{\min})}{n - \text{df}(\lambda_{\min})}$, representing the scale parameter of the error, estimated from the least penalized (most complex) model at the start of the solution path.
+
+- **Degrees of Freedom (**$\text{df}(\lambda)$): In a 2D Fused Lasso setup, the degrees of freedom equal the exact number of separated, constant spatial blocks (connected components) generated on the grid at a given penalty level $\lambda$.
+
+**Why this Formulation is Superior for Spatial Rasters**
+
+- **Asymptotic Stability against** $\text{RSS} \to 0$: In 2D Fused Lasso, when $\lambda$ approaches zero, the model fits the pixel grid almost perfectly. In the canonical formula, $n \log(\text{RSS}/n)$ collapses toward $-\infty$, completely overpowering the degrees of freedom penalty and causing the optimization path to fail into over-complex models. Conditioning the loss on a fixed $\hat{\sigma}^2$ regularizes the objective function linearly, ensuring a stable, U-shaped BIC curve.
+
+- **Preservation of Topology:** BIC operates globally on the original, uncompromised raster grid. It eliminates the need to randomly mask or block-partition pixels, completely avoiding the creation of artificial spatial boundaries or edge artifacts.
+
+- **Exact Graph Degrees of Freedom:** The `genlasso` solver computes the analytical degrees of freedom at every singular optimization step. BIC directly leverages this topological information, penalizing models that create too many fragmented urban components.
+
+- **Computational Efficiency:** Unlike Cross-Validation, which requires re-running the heavy 2D solver $K$ separate times, BIC is evaluated post-hoc on the full solution path object in a fraction of a second, requiring only a single model fit.
+
+```{r}
+# 1. Data Preparation
+y_vec <- as.numeric(v_kla_clean)
+n <- length(y_vec)
+beta_mat <- as.matrix(fit$beta) 
+
+# 2. Calculate Residual Sum of Squares (RSS)
+rss <- colSums((beta_mat - y_vec)^2)
+df_vec <- fit$df
+
+# 3. Estimate Error Variance (Sigma^2) from the least penalized model
+sig2_est <- rss[1] / (n - df_vec[1])
+
+# 4. Compute Sparsity-Stable BIC Score
+bic_values_stable <- (rss / sig2_est) + (df_vec * log(n))
+
+# 5. Identify Optimal Lambda
+best_idx_stable <- which.min(bic_values_stable)
+lambda_opt_bic_stable <- fit$lambda[best_idx_stable]
+
+cat("Optimal Lambda selected (Sparsity-Stable BIC):", lambda_opt_bic_stable, "\n")
+```
+
+```{r}
+# 6. Visualization of the selection process
+plot(log(fit$lambda), bic_values_stable, type = "l", col = "darkblue", lwd = 2,
+     xlab = "log(lambda)", ylab = "Sparsity-Stable BIC Score",
+     main = "Optimal Lambda Selection via Stable BIC")
+abline(v = log(lambda_opt_bic_stable), col = "red", lty = 2)
+
+lambda_label_stable <- paste0("Optimal log(lambda) = ", 
+                              round(log(lambda_opt_bic_stable), 3),
+                              "\n(lambda = ", round(lambda_opt_bic_stable, 3), ")")
+
+text(x = log(lambda_opt_bic_stable) + 0.1, 
+     y = min(bic_values_stable) + 0.9 * (max(bic_values_stable) - min(bic_values_stable)),
+     labels = lambda_label_stable, 
+     col = "red", 
+     adj = 0,         
+     cex = 0.85)
 ```
 
 ## 4. Extract smoothed coefficients
