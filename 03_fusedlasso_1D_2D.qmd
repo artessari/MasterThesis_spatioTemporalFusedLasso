@@ -306,14 +306,7 @@ The interpretation of the `genlasso` output path relies on the following core be
 
 ## 3. Choose lambda
 
-### Option A — Pick lambda visually from the path
-
-```{r}
-plot(fit)
-# Look for the "elbow" where the solution stabilizes
-```
-
-### Option B — K-fold Cross-Validation
+### Option A — K-fold Cross-Validation
 
 For each fold $k \in \{1, \dots, K\}$, the training vector $y^{(-k)}$ is modified by setting the test indices to zero. The model estimates the regularized coefficients $\hat{\beta}^{(-k)}(\lambda)$ along the safe lambda path grid:
 
@@ -419,7 +412,7 @@ text(x = log(lambda_opt_cv) + 0.1,
      cex = 0.85)
 ```
 
-### Option C — Lambda Selection via BIC (Bayesian Information Criterion)
+### Option B — Lambda Selection via BIC (Bayesian Information Criterion)
 
 The Bayesian Information Criterion (BIC) balances the goodness of fit against the structural complexity of the spatial graph. The canonical objective criteria is defined as:
 
