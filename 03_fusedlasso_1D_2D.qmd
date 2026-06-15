@@ -589,7 +589,7 @@ Where $N$ represents both the complete length of `v_kla_clean` and the exact tot
 ```{r}
 # Define which optimal lambda to use for the final map extraction
 # Change to lambda_opt (BIC) or use a manual value from the visual elbow (e.g., 2.5)
-selected_lambda <- lambda_opt 
+selected_lambda <- lambda_opt_bic_stable
 
 # 1. Extract the smoothed beta coefficients from the solution path
 # Since there are no NAs, beta_smooth maps 1:1 to the clean spatial grid length
