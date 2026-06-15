@@ -612,7 +612,7 @@ text(x = log(lambda_opt_bic) + 0.1,
 
 ### Option B(2) — Lambda Selection via Pathwise Scaled BIC
 
-The Bayesian Information Criterion (BIC) is a widely used model selection principle that balances goodness of fit and model complexity in penalized regression frameworks. In the context of sparse estimators such as LASSO and the 2D Fused Lasso, it is commonly evaluated along the regularization path using effective degrees of freedom. To improve numerical stability in high-resolution spatial settings and ensure a well-behaved selection criterion across the full solution path, this implementation employs a **variance-scaled (or normalized) BIC formulation** (where the criterion is evaluated using a plug-in estimate of the noise variance and pathwise estimates of the effective degrees of freedom).
+The Bayesian Information Criterion (BIC) is a widely used model selection principle that balances goodness of fit and model complexity in penalized regression frameworks. In the context of sparse estimators such as LASSO and the 2D Fused Lasso, it is typically evaluated along the regularization path using pathwise values of the effective degrees of freedom. To improve numerical stability in high-resolution spatial settings and ensure a well-behaved selection criterion across the full solution path, this implementation employs a **variance-scaled BIC-type criterion** evaluated at each value of the regularization parameter $\lambda$ along the solution path:
 
 $$\text{BIC}(\lambda) = \frac{\text{RSS}(\lambda)}{\hat{\sigma}^2} + \text{df}(\lambda) \log(n)$$
 
@@ -622,17 +622,17 @@ Where the specific metric functions expand as:
 
 - **Error Variance Estimate** ($\hat{\sigma}^2$): $\frac{\text{RSS}(\lambda_{\min})}{n - \text{df}(\lambda_{\min})}$, representing the scale parameter of the error, estimated from the least penalized (most complex) model at the start of the solution path.
 
-- **Degrees of Freedom** ($\text{df}(\lambda)$): In a 2D Fused Lasso setup, the degrees of freedom equal the exact number of separated, constant spatial blocks (connected components) generated on the grid at a given penalty level $\lambda$.
+- **Degrees of Freedom** ($\text{df}(\lambda)$): In a 2D Fused Lasso setup, the degrees of freedom are given by the number of connected constant spatial blocks (a standard approximation of the effective degrees of freedom in fused lasso models), corresponding to the number of separated, constant spatial regions (connected components) generated on the grid at a given penalty level
 
 **Why this Formulation is Superior for Spatial Rasters**
 
-- **Asymptotic Stability against** $\text{RSS} \to 0$: In 2D Fused Lasso, when $\lambda$ approaches zero, the model fits the pixel grid almost perfectly. In the canonical formula, $n \log(\text{RSS}/n)$ collapses toward $-\infty$, completely overpowering the degrees of freedom penalty and causing the optimization path to fail into over-complex models. Conditioning the loss on a fixed $\hat{\sigma}^2$ regularizes the objective function linearly, ensuring a stable, U-shaped BIC curve.
+- **Asymptotic Stability against** $\text{RSS} \to 0$: In 2D Fused Lasso, when $\lambda$ approaches zero, the model becomes highly flexible and closely fits the pixel grid. In the classical likelihood-based BIC formulation, the term $n \log(\text{RSS}/n)$ can become numerically unstable in highly flexible regions of the solution path, where the residual sum of squares becomes very small relative to $n$, and may dominate the degrees of freedom penalty, potentially leading to overly complex solutions along the path. Conditioning the criterion on a fixed $\hat{\sigma}^2$ replaces the logarithmic likelihood term with a variance-scaled residual expression, resulting in a more stable and well-behaved selection curve.
 
-- **Preservation of Topology:** BIC operates globally on the original, uncompromised raster grid. It eliminates the need to randomly mask or block-partition pixels, completely avoiding the creation of artificial spatial boundaries or edge artifacts.
+- **Preservation of Topology:** The criterion is evaluated globally on the full raster grid, avoiding explicit data partitioning such as masking or block-based splitting, which could introduce artificial boundary effects.
 
 - **Exact Graph Degrees of Freedom:** The `genlasso` solver computes the analytical degrees of freedom at every singular optimization step. BIC directly leverages this topological information, penalizing models that create too many fragmented urban components.
 
-- **Computational Efficiency:** Unlike Cross-Validation, which requires re-running the heavy 2D solver $K$ separate times, BIC is evaluated post-hoc on the full solution path object in a fraction of a second, requiring only a single model fit.
+- **Computational Efficiency:** Unlike Cross-Validation, which requires re-running the heavy 2D solver $K$ separate times, BIC is evaluated post-hoc on the full solution path object in a fraction of a second, requiring a single computation of the solution path.
 
 ```{r}
 # 1. Data Preparation
@@ -648,7 +648,7 @@ df_vec <- fit$df
 sig2_est <- rss[1] / (n - df_vec[1])
 
 # 4. Compute Sparsity-Stable BIC Score
-bic_values_stable <- (rss / sig2_est) + (df_vec * log(n))
+bic_values_psbic <- (rss / sig2_est) + (df_vec * log(n))
 
 # 5. Identify Optimal Lambda
 best_idx_psbic <- which.min(bic_values_psbic)
