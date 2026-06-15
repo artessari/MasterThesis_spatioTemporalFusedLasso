@@ -547,7 +547,7 @@ text(x = log(lambda_opt_cv) + 0.1,
      cex = 0.85)
 ```
 
-### Option B(1) — Lambda Selection via BIC (Bayesian Information Criterion)
+### Option B(1) — Lambda Selection via Schwarz Information Criterion (BIC)
 
 The Bayesian Information Criterion (BIC) balances the goodness of fit against the structural complexity of the spatial graph. The canonical objective criteria is defined as:
 
@@ -555,9 +555,9 @@ $$\text{BIC}(\lambda) = n \log\left(\frac{\text{RSS}(\lambda)}{n}\right) + \text
 
 Where the specific metric functions expand as:
 
-- **Residual Sum of Squares (**$\text{RSS}(\lambda)$): $\sum_{i=1}^{n} (y_i - \hat{\beta}_i(\lambda))^2$, evaluating the empirical error variance.
+- **Residual Sum of Squares** ($\text{RSS}(\lambda)$): $\sum_{i=1}^{n} (y_i - \hat{\beta}_i(\lambda))^2$, evaluating the empirical error variance.
 
-- **Degrees of Freedom (**$\text{df}(\lambda)$): In a 2D Fused Lasso setup, the degrees of freedom equal the exact number of separated, constant spatial blocks (connected components) generated on the Kampala grid at a given penalty level $\lambda$.
+- **Degrees of Freedom** ($\text{df}(\lambda)$): In a 2D Fused Lasso setup, the degrees of freedom equal the exact number of separated, constant spatial blocks (connected components) generated on the Kampala grid at a given penalty level $\lambda$.
 
 **Why BIC is Superior to K-fold CV for Spatial Rasters**
 
@@ -610,19 +610,19 @@ text(x = log(lambda_opt_bic) + 0.1,
      cex = 0.85)
 ```
 
-### Option B(2) — Lambda Selection via Sparsity-Stable BIC
+### Option B(2) — Lambda Selection via Pathwise Scaled BIC
 
-The Bayesian Information Criterion (BIC) balances the goodness of fit against the structural complexity of the spatial graph. To ensure numerical stability along the 2D Fused Lasso solution path and avoid overfitting caused by the asymptotic behavior of the canonical log-residual metric on high-resolution data, this method utilizes the sparsity-stable formulation of the criterion:
+The Bayesian Information Criterion (BIC) is a widely used model selection principle that balances goodness of fit and model complexity in penalized regression frameworks. In the context of sparse estimators such as LASSO and the 2D Fused Lasso, it is commonly evaluated along the regularization path using effective degrees of freedom. To improve numerical stability in high-resolution spatial settings and ensure a well-behaved selection criterion across the full solution path, this implementation employs a **variance-scaled (or normalized) BIC formulation** (where the criterion is evaluated using a plug-in estimate of the noise variance and pathwise estimates of the effective degrees of freedom).
 
 $$\text{BIC}(\lambda) = \frac{\text{RSS}(\lambda)}{\hat{\sigma}^2} + \text{df}(\lambda) \log(n)$$
 
 Where the specific metric functions expand as:
 
-- **Residual Sum of Squares (**$\text{RSS}(\lambda)$): $\sum_{i=1}^{n} (y_i - \hat{\beta}_i(\lambda))^2$, evaluating the empirical error variance at penalty level $\lambda$.
+- **Residual Sum of Squares** ($\text{RSS}(\lambda)$): $\sum_{i=1}^{n} (y_i - \hat{\beta}_i(\lambda))^2$, evaluating the empirical error variance at penalty level $\lambda$.
 
-- **Error Variance Estimate (**$\hat{\sigma}^2$): $\frac{\text{RSS}(\lambda_{\min})}{n - \text{df}(\lambda_{\min})}$, representing the scale parameter of the error, estimated from the least penalized (most complex) model at the start of the solution path.
+- **Error Variance Estimate** ($\hat{\sigma}^2$): $\frac{\text{RSS}(\lambda_{\min})}{n - \text{df}(\lambda_{\min})}$, representing the scale parameter of the error, estimated from the least penalized (most complex) model at the start of the solution path.
 
-- **Degrees of Freedom (**$\text{df}(\lambda)$): In a 2D Fused Lasso setup, the degrees of freedom equal the exact number of separated, constant spatial blocks (connected components) generated on the grid at a given penalty level $\lambda$.
+- **Degrees of Freedom** ($\text{df}(\lambda)$): In a 2D Fused Lasso setup, the degrees of freedom equal the exact number of separated, constant spatial blocks (connected components) generated on the grid at a given penalty level $\lambda$.
 
 **Why this Formulation is Superior for Spatial Rasters**
 
@@ -651,26 +651,26 @@ sig2_est <- rss[1] / (n - df_vec[1])
 bic_values_stable <- (rss / sig2_est) + (df_vec * log(n))
 
 # 5. Identify Optimal Lambda
-best_idx_stable <- which.min(bic_values_stable)
-lambda_opt_bic_stable <- fit$lambda[best_idx_stable]
+best_idx_psbic <- which.min(bic_values_psbic)
+lambda_opt_bic_psbic <- fit$lambda[best_idx_psbic]
 
-cat("Optimal Lambda selected (Sparsity-Stable BIC):", lambda_opt_bic_stable, "\n")
+cat("Optimal Lambda selected (Sparsity-Stable BIC):", lambda_opt_bic_psbic, "\n")
 ```
 
 ```{r}
 # 6. Visualization of the selection process
-plot(log(fit$lambda), bic_values_stable, type = "l", col = "darkblue", lwd = 2,
-     xlab = "log(lambda)", ylab = "Sparsity-Stable BIC Score",
-     main = "Optimal Lambda Selection via Stable BIC")
-abline(v = log(lambda_opt_bic_stable), col = "red", lty = 2)
+plot(log(fit$lambda), bic_values_psbic, type = "l", col = "darkblue", lwd = 2,
+     xlab = "log(lambda)", ylab = "Pathwise Scaled BIC Score",
+     main = "Optimal Lambda Selection via Pathwise Scaled BIC")
+abline(v = log(lambda_opt_bic_psbic), col = "red", lty = 2)
 
-lambda_label_stable <- paste0("Optimal log(lambda) = ", 
-                              round(log(lambda_opt_bic_stable), 3),
-                              "\n(lambda = ", round(lambda_opt_bic_stable, 3), ")")
+lambda_label_psbic <- paste0("Optimal log(lambda) = ", 
+                             round(log(lambda_opt_bic_psbic), 3),
+                             "\n(lambda = ", round(lambda_opt_bic_psbic, 3), ")")
 
-text(x = log(lambda_opt_bic_stable) + 0.1, 
-     y = min(bic_values_stable) + 0.9 * (max(bic_values_stable) - min(bic_values_stable)),
-     labels = lambda_label_stable, 
+text(x = log(lambda_opt_bic_psbic) + 0.1, 
+     y = min(bic_values_psbic) + 0.9 * (max(bic_values_psbic) - min(bic_values_psbic)),
+     labels = lambda_label_psbic, 
      col = "red", 
      adj = 0,         
      cex = 0.85)
@@ -693,7 +693,7 @@ Where $N$ represents both the complete length of `v_kla_clean` and the exact tot
 ```{r}
 # Define which optimal lambda to use for the final map extraction
 # Change to lambda_opt (BIC) or use a manual value from the visual elbow (e.g., 2.5)
-selected_lambda <- lambda_opt_bic_stable
+selected_lambda <- lambda_opt_bic_psbic
 
 # 1. Extract the smoothed beta coefficients from the solution path
 # Since there are no NAs, beta_smooth maps 1:1 to the clean spatial grid length
