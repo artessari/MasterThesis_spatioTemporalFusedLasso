@@ -306,7 +306,112 @@ The interpretation of the `genlasso` output path relies on the following core be
 
 ## 3. Choose lambda
 
-### Option A — K-fold Cross-Validation
+### Option A(1) — Random K-fold Cross-Validation with Pixel-Wise Zero-Imputation
+
+For each fold $k \in \{1, \dots, K\}$, the training vector $y^{(-k)}$ is modified by setting the test indices to zero. The model estimates the regularized coefficients $\hat{\beta}^{(-k)}(\lambda)$ along the safe lambda path grid:
+
+$$\hat{\beta} \text{ extracted at } \lambda_j \implies \text{MSE}_k(\lambda_j) = \frac{1}{|T_k|} \sum_{i \in T_k} \left( y_i - \hat{\beta}^{(-k)}_i(\lambda_j) \right)^2$$
+
+The optimal tuning parameter $\lambda_{\mathit{opt\_cv}}$ minimizes the average Cross-Validation Mean Squared Error ($\text{CV}_{\text{MSE}}$):
+
+$$\text{CV}_{\text{MSE}}(\lambda_j) = \frac{1}{K} \sum_{k=1}^{K} \text{MSE}_k(\lambda_j) \quad \implies \quad \lambda_{\mathit{opt\_cv}} = \arg\min_{\lambda_j} \text{CV}_{\text{MSE}}(\lambda_j)$$
+
+Where:
+
+- $T_k$: The set of pixel indices assigned to the $k$-th test fold.
+
+- $|T_k|$: The total number of evaluation pixels within the active test fold.
+
+- $y_i$: The baseline observed log-transformed light intensity of pixel $i$.
+
+**Methodological Limitations**
+
+- **Graph Disruption:** Random spatial sampling breaks the mathematical continuity of the 2D spatial adjacency matrix $D$.
+
+- **Imputation Proxy Bias:** Forcing $y_i = 0$ for test pixels introduces artificial sharp edges into the training phase, forcing the solver to smooth out artificial artificial contrasts.
+
+- **Interpretation:** The resulting curve provides a numerical profile of the cross-validation error across the tuning parameter grid. The selected $\lambda_{\mathit{opt\_cv}}$ marks the exact mathematical minimum where the model achieves the best balance between bias and variance. However, because random spatial sampling alters the underlying graph structure during the validation steps, this data-driven choice should always be verified visually to ensure that the resulting segments retain the true structural coherence of Kampala's urban boundaries.
+
+```{r}
+set.seed(123)
+n <- length(v_kla_clean)
+K <- 5
+folds <- sample(rep(1:K, length.out = n))
+
+# start timer
+cv_time <- system.time({
+  
+  # 1. Pre-fit the folds
+  fold_fits <- vector("list", K)
+  max_min_lambda <- 0
+  
+  for (k in 1:K) {
+    test_idx  <- which(folds == k)
+    y_train   <- v_kla_clean
+    
+    # Set test values to 0 as an operational proxy for CV
+    y_train[test_idx] <- 0  
+    
+    # Fit the model with corrected dimensions (dim1 = columns, dim2 = rows)
+    fold_fits[[k]] <- fusedlasso2d(
+      y    = as.numeric(y_train),
+      dim1 = ncol_k,
+      dim2 = nrow_k
+    )
+    
+    # Track the highest minimum lambda across all folds to find a safe evaluation range
+    max_min_lambda <- max(max_min_lambda, min(fold_fits[[k]]$lambda))
+  }
+  
+  # 2. Define a safe grid of lambdas
+  lambdas_safe <- fit$lambda[fit$lambda >= max_min_lambda]
+  
+  # 3. Compute CV Errors
+  cv_errors_matrix <- matrix(NA, nrow = K, ncol = length(lambdas_safe))
+  
+  for (k in 1:K) {
+    test_idx <- which(folds == k)
+    
+    for (j in seq_along(lambdas_safe)) {
+      cv_errors_matrix[k, j] <- tryCatch({
+        beta_j <- coef(fold_fits[[k]], lambda = lambdas_safe[j])$beta
+        mean((v_kla_clean[test_idx] - beta_j[test_idx])^2)
+      }, error = function(e) NA_real_)
+    }
+  }
+  
+  # 4. Identify Optimal Lambda
+  # Computes the mean error for each lambda column, ignoring any NA
+  cv_mse <- colMeans(cv_errors_matrix, na.rm = TRUE)
+  lambda_opt_cv <- lambdas_safe[which.min(cv_mse)]
+  
+})  # end timer
+
+cat("Optimal Lambda (CV):", lambda_opt_cv, "\n")
+
+cat("CV computation time:\n")
+print(cv_time)
+```
+
+```{r}
+# 5. Plot the CV Curve
+plot(log(lambdas_safe), cv_mse, type = "l", col = "darkgreen", lwd = 2,
+     xlab = "log(lambda)", ylab = "CV Mean Squared Error",
+     main = "Cross-validation for 2D Fused Lasso")
+abline(v = log(lambda_opt_cv), col = "red", lty = 2)
+
+lambda_label <- paste0("Optimal log(lambda) = ", round(log(lambda_opt_cv), 3),
+                       "\n(lambda = ", round(lambda_opt_cv, 3), ")")
+
+text(x = log(lambda_opt_cv) + 0.1, 
+     y = min(cv_mse) + 0.9 * (max(cv_mse) - min(cv_mse)), 
+     labels = lambda_label, 
+     col = "red", 
+     adj = 0,         
+     cex = 0.85)
+```
+
+### Option A(2) — Spatial K-fold Cross-Validation with Row-Block Mean-Imputation
 
 For each fold $k \in \{1, \dots, K\}$, the study region is partitioned into spatial blocks defined by horizontal rows. The training vector $y^{(-k)}$ is constructed by replacing the held-out validation pixels with the mean intensity of the training sample:
 
@@ -363,7 +468,7 @@ folds <- cut(
   labels = FALSE
 )
 
-# Start timer
+# start timer
 cv_time <- system.time({
   
   # 1. Pre-fit the folds
@@ -412,15 +517,14 @@ cv_time <- system.time({
     }
   }
   
+  # 4. Identify optimal lambda
+  cv_mse <- cv_errors / cv_counts
+  lambda_opt_cv <- lambdas_safe[which.min(cv_mse)]
+  
 })  # end timer
-
-# 4. Identify optimal lambda
-cv_mse <- cv_errors / cv_counts
-lambda_opt_cv <- lambdas_safe[which.min(cv_mse)]
 
 cat("Optimal Lambda (Spatial CV):", lambda_opt_cv, "\n")
 
-# Print computation time
 cat("CV computation time:\n")
 print(cv_time)
 ```
