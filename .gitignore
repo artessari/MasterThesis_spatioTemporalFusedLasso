@@ -42,6 +42,7 @@ Thumbs.db
 *_files/
 *_cache/
 /.quarto/
+_freeze/
 **/*.quarto_ipynb
 
 # LaTeX intermediate files (PDF export)
