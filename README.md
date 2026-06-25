@@ -7,7 +7,6 @@ Here is an overview of the key files and directories in this repository:
 ```         
 .
 ├── PDF-Documentation/                                                          # Final rendered documentation in PDF format
-├── _freeze/                                                                    # Cached computational results for Quarto documents
 ├── data/                                                                       # Input data and study area
 │   ├── blackmarble_rasters/                                                    # Monthly nighttime lights stored as SpatRaster (.rds)
 │   ├── blackmarble_tif/                                                        # GeoTIFF versions of monthly nighttime lights
@@ -17,7 +16,8 @@ Here is an overview of the key files and directories in this repository:
 │       └── gadm41_UGA_1_pk.rds 
 ├── renv/                                                                       # Local R library (package management environment)
 ├── .Rprofile                                                                   # Automatically activates the renv environment upon startup
-├── .gitignore                                                                  # List of files and folders ignored by Git
+├── .gitignore                                                                  # Specifies files and folders ignored by Git
+├── .renvignore                                                                 # Prevents renv from scanning specific folders to improve performance
 ├── 00_How-to-Store-NASA-Credentials-as-Environment-Variables-in-R-Rproj.qmd    # Quarto source file: Guide on securely storing NASA credentials
 ├── 01_BlackMarbleR_Usage-DataDownload.qmd                                      # Quarto source file: Data download and preprocessing of Black Marble nighttime lights (script for testing the blackmarbler package)
 ├── 02_BlackMarbleR_Preprocessing.qmd                                           # Quarto source file: Monthly to quarterly raster aggregation, spatial missing data imputation via focal filter, and ROI (Kampala) bounding box extraction
@@ -30,11 +30,11 @@ Here is an overview of the key files and directories in this repository:
 
 ### Key Files
 
-- **`data/`**: Stores the Uganda study area boundaries (`gadm41_UGA_1_pk.rds`) and monthly Black Marble nighttime light datasets. Raster data are provided as RDS (`SpatRaster`) objects for analysis and modeling in R, while GeoTIFF files are included primarily for visualization purposes.
-- **`00_How-to-Store-NASA-Credentials-as-Environment-Variables-in-R-Rproj.qmd`**: Contains a step-by-step technical guide on how to configure `.Renviron` locally to securely access NASA data without hardcoding authentication parameters.
-- **`01_BlackMarbleR_Usage-DataDownload.qmd`**: Data download and preprocessing workflow for Black Marble nighttime lights. The script demonstrates how to retrieve monthly raster data using the `blackmarbler` package, process and save outputs as RDS (for analysis) and GeoTIFF (for visualization), and generate exploratory spatio-temporal summaries and maps.
-- **`02_BlackMarbleR_Preprocessing.qmd`**: Processes monthly Black Marble rasters into quarterly aggregates (Q1–Q4) using pixel-wise means to minimize temporal noise. It then extracts a fixed bounding box for the Kampala Region of Interest (ROI), applies a log-transformation ($\log1p$), and handles spatial data gaps by performing a local imputation using a $3 \times 3$ moving window (focal mean) that replaces only missing pixels while preserving original valid radiance signals.
-- **`03_fusedlasso_1D_2D.qmd`**: Analysis using 1D and 2D fused lasso models for spatio-temporal change detection in nighttime lights data. The file implements spatial smoothing via a 2D fused lasso applied to Kampala raster data, temporal smoothing across monthly observations using a 1D fused lasso framework, and derives pixel-wise change detection metrics to identify structural dynamics and temporal shifts in urban night-time illumination patterns.
+-   **`data/`**: Stores the Uganda study area boundaries (`gadm41_UGA_1_pk.rds`) and monthly/quarterly aggregated Black Marble nighttime light datasets. Raster data are provided as RDS (`SpatRaster`) objects for analysis and modeling in R, while GeoTIFF files are included primarily for visualization purposes.
+-   **`00_How-to-Store-NASA-Credentials-as-Environment-Variables-in-R-Rproj.qmd`**: Contains a step-by-step technical guide on how to configure `.Renviron` locally to securely access NASA data without hardcoding authentication parameters.
+-   **`01_BlackMarbleR_Usage-DataDownload.qmd`**: Data download and preprocessing workflow for Black Marble nighttime lights. The script demonstrates how to retrieve monthly raster data using the `blackmarbler` package, process and save outputs as RDS (for analysis) and GeoTIFF (for visualization), and generate exploratory spatio-temporal summaries and maps.
+-   **`02_BlackMarbleR_Preprocessing.qmd`**: Processes monthly Black Marble rasters into quarterly aggregates (Q1–Q4) using pixel-wise means to minimize temporal noise. It then extracts a fixed bounding box for the Kampala Region of Interest (ROI), applies a log-transformation ($\log1p$), and handles spatial data gaps by performing a local imputation using a $3 \times 3$ moving window (focal mean) that replaces only missing pixels while preserving original valid radiance signals.
+-   **`03_fusedlasso_1D_2D.qmd`**: Analysis using 1D and 2D fused lasso models for spatio-temporal change detection in nighttime lights data. The file implements spatial smoothing via a 2D fused lasso applied to Kampala raster data, temporal smoothing across monthly observations using a 1D fused lasso framework, and derives pixel-wise change detection metrics to identify structural dynamics and temporal shifts in urban night-time illumination patterns.
 
 ------------------------------------------------------------------------
 
@@ -75,9 +75,9 @@ This command automatically installs all the package versions defined in the `ren
 
 The following files are critical for environment stability:
 
-- **renv.lock**: Contains the exact list of all package versions.
-- **.Rprofile**: Automatically activates renv when R starts up in this directory.
-- **renv/activate.R**: The script responsible for loading the local environment.
+-   **renv.lock**: Contains the exact list of all package versions.
+-   **.Rprofile**: Automatically activates renv when R starts up in this directory.
+-   **renv/activate.R**: The script responsible for loading the local environment.
 
 ### Updating the Environment
 
@@ -89,8 +89,8 @@ renv::snapshot()
 
 ### Version Control Notes
 
-- The **renv.lock** file must be versioned and tracked in Git.
-- The **renv/library/** directory is ignored because it contains local package installations. These can be generated dynamically when needed via `renv::restore()`.
+-   The **renv.lock** file must be versioned and tracked in Git.
+-   The **renv/library/** directory is ignored because it contains local package installations. These can be generated dynamically when needed via `renv::restore()`.
 
 ------------------------------------------------------------------------
 
@@ -100,10 +100,10 @@ In RStudio, code inside a Quarto document can be executed flexibly: either step-
 
 Using the **Run** button options in the editor dropdown:
 
-- **Run Current Chunk**: Executes only the active code block.
-- **Run Next Chunk**: Executes the following code block.
-- **Run All Chunks Above**: Executes all preceding blocks (crucial when dealing with data dependencies).
-- **Run All**: Executes the entire code sequentially (similar to a classic R script).
+-   **Run Current Chunk**: Executes only the active code block.
+-   **Run Next Chunk**: Executes the following code block.
+-   **Run All Chunks Above**: Executes all preceding blocks (crucial when dealing with data dependencies).
+-   **Run All**: Executes the entire code sequentially (similar to a classic R script).
 
 This allows for isolating and testing specific parts of the analysis, or running the complete pipeline at once to instantly inspect the total output without rendering the entire document.
 
