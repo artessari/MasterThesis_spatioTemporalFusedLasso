@@ -94,8 +94,8 @@ dir.create(tif_dir, showWarnings = FALSE, recursive = TRUE)
 
 ```{r}
 # Define time range (monthly aggregation period)
-start_date <- ym("2014-01")
-end_date   <- ym("2014-12")
+start_date <- ym("2015-01")
+end_date   <- ym("2015-12")
 
 # Generate monthly sequence 
 months <- format(seq(start_date, end_date, by = "month"), "%Y-%m") # format as "YYYY-MM"
@@ -106,6 +106,10 @@ months
 \newpage
 
 ## Process monthly rasters
+
+**PRODUCT**: <https://ladsweb.modaps.eosdis.nasa.gov/archive/allData/5200/VNP46A3>
+
+\[ Data Availability: January 2012 – Present (2026) \]
 
 - **RDS (.Rds)**: R-native SpatRaster objects used for efficient analysis and modeling in R workflows
 
