@@ -94,8 +94,8 @@ dir.create(tif_dir, showWarnings = FALSE, recursive = TRUE)
 
 ```{r}
 # Define time range (monthly aggregation period)
-start_date <- ym("2020-01")
-end_date   <- ym("2020-12")
+start_date <- ym("2014-01")
+end_date   <- ym("2014-12")
 
 # Generate monthly sequence 
 months <- format(seq(start_date, end_date, by = "month"), "%Y-%m") # format as "YYYY-MM"
@@ -336,6 +336,6 @@ plot_year <- function(files_year) {
 ```{r}
 #| fig.height: 7
 
-target_year <- "2021"
+target_year <- "2014"
 plot_year(all_files[sapply(all_files, get_year) == target_year])
 ```
