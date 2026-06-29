@@ -39,13 +39,13 @@ tif_dir <- file.path(data_dir, "blackmarble_tif")
 
 Monthly Black Marble nighttime light rasters are aggregated into calendar quarters (Q1–Q4). For each quarter, the three corresponding monthly rasters are combined using the pixel-wise mean, preserving the original radiance units while reducing short-term temporal variability.
 
-- **Q1:** January–February–March
+-   **Q1:** January–February–March
 
-- **Q2:** April–May–June
+-   **Q2:** April–May–June
 
-- **Q3:** July–August–September
+-   **Q3:** July–August–September
 
-- **Q4:** October–November–December
+-   **Q4:** October–November–December
 
 ```{r}
 # folder for quarterly RDS rasters
@@ -85,7 +85,7 @@ meta %>% mutate(file = basename(file))
 
 ```{r}
 # Years to aggregate
-target_years <- c(2013, 2020, 2021)
+target_years <- c(2012:2024)
 
 # Filter to selected years only
 meta <- meta %>%
