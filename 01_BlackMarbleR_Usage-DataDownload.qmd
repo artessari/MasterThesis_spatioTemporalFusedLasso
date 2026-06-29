@@ -94,8 +94,8 @@ dir.create(tif_dir, showWarnings = FALSE, recursive = TRUE)
 
 ```{r}
 # Define time range (monthly aggregation period)
-start_date <- ym("2024-01")
-end_date   <- ym("2024-12")
+start_date <- ym("2025-01")
+end_date   <- ym("2025-12")
 
 # Generate monthly sequence 
 months <- format(seq(start_date, end_date, by = "month"), "%Y-%m") # format as "YYYY-MM"
