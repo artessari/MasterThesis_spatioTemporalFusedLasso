@@ -59,8 +59,8 @@ dir.create(quarter_tif_dir, showWarnings = FALSE, recursive = TRUE)
 
 ```{r}
 all_files <- list.files(
-  rds_dir,
-  pattern = "\\.Rds$",
+  tif_dir,
+  pattern = "\\.tif$",
   full.names = TRUE
 )
 
@@ -68,7 +68,7 @@ all_files <- list.files(
 # Expected format: ntl_YYYY_MM.Rds
 get_info <- function(f) {
   
-  x <- gsub("ntl_|\\.Rds", "", basename(f))
+  x <- gsub("ntl_|\\.tif", "", basename(f))
   parts <- strsplit(x, "_")[[1]]
   
   data.frame(
@@ -128,8 +128,8 @@ for (i in seq_len(nrow(groups))) {
     next
   }
   
-  # Read monthly rasters
-  r_list <- lapply(files_group, readRDS)
+  # Read monthly rasters using native terra function
+  r_list <- lapply(files_group, rast)
   
   # Create SpatRaster stack
   r_stack <- rast(r_list)
@@ -198,8 +198,8 @@ str(kampala)
 ## Single-Month Raster Extraction for Kampala
 
 ```{r}
-file_rds <- file.path(rds_dir, "ntl_2021_03.Rds")
-r <- readRDS(file_rds)
+file_tif <- file.path(tif_dir, "ntl_2021_03.tif")
+r <- rast(file_tif)
 
 # log transform
 r_log <- log1p(r)
@@ -277,10 +277,10 @@ plot(kampala, add = TRUE, border = "blue", lwd = 2)
 ```{r}
 na_kampala_stats <- data.frame()
 
-for (f in list.files(quarter_rds_dir, full.names = TRUE, pattern = "\\.Rds$")) {
+for (f in list.files(quarter_tif_dir, full.names = TRUE, pattern = "\\.tif$")) {
   
   # Read raster
-  r <- readRDS(f)
+  r <- rast(f)
   
   # Log transform
   r_log <- log1p(r)
@@ -316,10 +316,10 @@ dir.create(kampala_dir, showWarnings = FALSE, recursive = TRUE)
 ```
 
 ```{r}
-# List all quarterly raster files (RDS format)
+# List all quarterly raster files 
 quarter_files <- list.files(
-  quarter_rds_dir,
-  pattern = "\\.Rds$",
+  quarter_tif_dir,
+  pattern = "\\.tif$",
   full.names = TRUE
 )
 ```
@@ -332,7 +332,7 @@ for (f in quarter_files) {
   cat("Processing:", basename(f), "\n")
   
   # Read raster
-  r <- readRDS(f)
+  r <- rast(f)
   
   # Log transform
   r_log <- log1p(r)
@@ -366,14 +366,14 @@ for (f in quarter_files) {
   na_after <- terra::global(is.na(r_kampala_square), "sum")[1,1]
   
   # Output name
-  out_name <- gsub("\\.Rds", "", basename(f))
+  out_name <- gsub("\\.tif", "", basename(f))
   
   out_file <- file.path(
     kampala_dir,
-    paste0(out_name, "_kampala.Rds")
+    paste0(out_name, "_kampala.tif")
   )
   
-  saveRDS(r_kampala_square, out_file)
+  writeRaster(r_kampala_square, out_file, overwrite = TRUE)
   
   kampala_files[[f]] <- out_file
   
