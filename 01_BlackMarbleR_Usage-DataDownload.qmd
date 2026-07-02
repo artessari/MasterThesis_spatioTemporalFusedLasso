@@ -111,9 +111,11 @@ months
 
 \[ Data Availability: January 2012 – Present (2026) \]
 
-- **RDS (.Rds)**: R-native SpatRaster objects used for efficient analysis and modeling in R workflows
+- **RDS (.Rds)**: R-native serialized objects storing raster pointer references for R analysis and workflows
 
 - **GeoTIFF (.tif)**: standard geospatial raster format for interoperability, visualization, and GIS software compatibility
+
+*NOTE: GeoTIFF (.tif) is preferred over standard RDS for data stability, as it writes the actual physical pixels directly to disk, completely avoiding C++ pointer breakages, Git tracking anomalies, and cloud storage sync conflicts.*
 
 ```{r}
 #| message: false
