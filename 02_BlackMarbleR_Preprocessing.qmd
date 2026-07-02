@@ -29,9 +29,7 @@ library(tidyverse)
 
 # Folders
 data_dir <- file.path(getwd(), "data")
-h5_folder <- file.path(data_dir, "blackmarble_h5")
 
-rds_dir <- file.path(data_dir, "blackmarble_rasters")
 tif_dir <- file.path(data_dir, "blackmarble_tif")
 ```
 
@@ -48,10 +46,6 @@ Monthly Black Marble nighttime light rasters are aggregated into calendar quarte
 - **Q4:** October–November–December
 
 ```{r}
-# folder for quarterly RDS rasters
-quarter_rds_dir <- file.path(data_dir, "blackmarble_quarterly_rasters")
-dir.create(quarter_rds_dir, showWarnings = FALSE, recursive = TRUE)
-
 # folder for quarterly GeoTIFF rasters
 quarter_tif_dir <- file.path(data_dir, "blackmarble_quarterly_tif")
 dir.create(quarter_tif_dir, showWarnings = FALSE, recursive = TRUE)
@@ -65,7 +59,7 @@ all_files <- list.files(
 )
 
 # Extract metadata (year and month) from filenames
-# Expected format: ntl_YYYY_MM.Rds
+# Expected format: ntl_YYYY_MM.tif
 get_info <- function(f) {
   
   x <- gsub("ntl_|\\.tif", "", basename(f))
@@ -153,18 +147,10 @@ for (i in seq_len(nrow(groups))) {
   )
   
   # Define output file base name
-  out_base_rds <- file.path(
-    quarter_rds_dir,
-    paste0("ntl_", current_year, "_", current_quarter)
-  )
-  
   out_base_tif <- file.path(
     quarter_tif_dir,
     paste0("ntl_", current_year, "_", current_quarter)
   )
-  
-  # Save RDS object
-  saveRDS(r_quarter, paste0(out_base_rds, ".Rds"))
   
   # Export GeoTIFF
   writeRaster(
