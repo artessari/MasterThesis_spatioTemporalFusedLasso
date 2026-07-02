@@ -750,11 +750,11 @@ plot(r_smooth,
 
 \newpage
 
-# Temporal Fused Lasso – Pixel-Wise, Kampala 2021 (T=4)
+# Temporal Fused Lasso – Pixel-Wise, Kampala 2012 - 2025 (T=56)
 
 ### Mathematical Formulation
 
-The Temporal Fused Lasso (1D total variation denoising) models the trajectory of nighttime light intensity for each geographical cell independently across chronological intervals. For a given pixel, let $y \in \mathbb{R}^T$ be the vector of observed log-transformed radiance values across $T = 4$ quarters. The optimization problem estimates the smoothed temporal signal $\hat{\beta} \in \mathbb{R}^T$ by minimizing:
+The Temporal Fused Lasso (1D total variation denoising) models the trajectory of nighttime light intensity for each geographical cell independently across chronological intervals. For a given pixel, let $y \in \mathbb{R}^T$ be the vector of observed log-transformed radiance values across $T = 56$ quarters. The optimization problem estimates the smoothed temporal signal $\hat{\beta} \in \mathbb{R}^T$ by minimizing:
 
 $$\hat{\beta} = \arg\min_{\beta} \left\{ \frac{1}{2} \sum_{t=1}^{T} (y_t - \beta_t)^2 + \lambda \sum_{t=1}^{T-1} |\beta_{t+1} - \beta_t| \right\}$$
 
@@ -768,7 +768,7 @@ The objective criteria are defined by two competing dynamics:
 
 ### Structural Matrix Operators ($D$ Matrix)
 
-For $T = 4$ quarters, the first-order forward difference penalty matrix $D \in \mathbb{R}^{(T-1) \times T}$ is explicitly constructed by the 1D solver as:
+For $T = 56$ quarters, the first-order forward difference penalty matrix $D \in \mathbb{R}^{(T-1) \times T}$ is explicitly constructed by the 1D solver as:
 
 $$D = \begin{bmatrix} -1 &  1 &  0 &  0 \\ 0 & -1 &  1 &  0 \\ 0 &  0 & -1 &  1 \end{bmatrix}$$
 
@@ -785,22 +785,22 @@ $$\|D\beta\|_1 = |\beta_{\text{Q2}} - \beta_{\text{Q1}}| + |\beta_{\text{Q3}} - 
 ## 1. Load and prep all quarters
 
 ```{r}
-files_2021 <- list.files(
+files <- list.files(
   path       = kampala_dir,
-  pattern    = "ntl_2021_Q[1-4]_kampala\\.tif$",
+  pattern    = "ntl_[0-9]{4}_Q[1-4]_kampala\\.tif$",
   full.names = TRUE
 ) %>% sort()
 ```
 
 ```{r}
 # 1. Load raster files
-r_list <- lapply(files_2021, rast)
+r_list <- lapply(files, rast)
 
 # 2. Create a multi-layer SpatRaster
 r_stack <- terra::rast(r_list)
 
 # 3. Assign quarter labels to layers
-layer_names <- gsub("ntl_|_kampala\\.tif", "", basename(files_2021))
+layer_names <- gsub("ntl_|_kampala\\.tif", "", basename(files))
 names(r_stack) <- gsub("_", " ", layer_names)
 
 # 4. Extract spatial and temporal dimensions
