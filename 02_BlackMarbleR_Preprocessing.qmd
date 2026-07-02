@@ -29,7 +29,6 @@ library(tidyverse)
 
 # Folders
 data_dir <- file.path(getwd(), "data")
-
 tif_dir <- file.path(data_dir, "blackmarble_tif")
 ```
 

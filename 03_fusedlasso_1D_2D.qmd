@@ -30,14 +30,6 @@ library(tidyverse)
 
 # Folders
 data_dir <- file.path(getwd(), "data")
-h5_folder <- file.path(data_dir, "blackmarble_h5")
-
-rds_dir <- file.path(data_dir, "blackmarble_rasters")
-tif_dir <- file.path(data_dir, "blackmarble_tif")
-
-quarter_rds_dir <- file.path(data_dir, "blackmarble_quarterly_rasters")
-quarter_tif_dir <- file.path(data_dir, "blackmarble_quarterly_tif")
-
 kampala_dir <- file.path(data_dir, "kampala")
 ```
 
@@ -46,7 +38,7 @@ kampala_dir <- file.path(data_dir, "kampala")
 ```{r}
 processed_files <- list.files(
   kampala_dir, 
-  pattern = "_kampala\\.Rds$", 
+  pattern = "_kampala\\.tif$", 
   full.names = TRUE
 )
 
@@ -56,11 +48,11 @@ kampala_rasters <- list()
 for (f in processed_files) {
   # Use the file name as the list key
   file_key <- basename(f)
-  kampala_rasters[[file_key]] <- readRDS(f)
+  kampala_rasters[[file_key]] <- rast(f)
 }
 
 # The rasters are now accessible via the list, for example:
-# kampala_rasters$ntl_2013_Q1_kampala.Rds
+# kampala_rasters$ntl_2013_Q1_kampala.tif
 ```
 
 ```{r}
@@ -133,6 +125,8 @@ raster_summary
 ## Quarterly Nighttime Lights Grid Map
 
 ```{r}
+#| fig-height: 25
+
 # Setup layout grid 
 num_plots <- length(kampala_rasters)
 num_cols <- 4
@@ -146,7 +140,7 @@ for (name in names(kampala_rasters)) {
   current_raster <- kampala_rasters[[name]]
   
   # Extract the temporal period dynamically from the file name
-  quarter_label <- gsub("ntl_|_kampala\\.Rds", "", name)
+  quarter_label <- gsub("ntl_|_kampala\\.tif", "", name)
   quarter_label <- gsub("_", " ", quarter_label)
   
   # Plot the nighttime light intensity raster with the period title
@@ -171,12 +165,14 @@ mtext(
 ```
 
 ```{r}
+#| fig-height: 10
+
 # Create a single SpatRaster with one layer per period
 kampala_stack <- rast(kampala_rasters)
 
 # Extract temporal labels dynamically from layer names
 quarter_labels <- names(kampala_stack)
-quarter_labels <- gsub("ntl_|_kampala\\.Rds", "", quarter_labels)
+quarter_labels <- gsub("ntl_|_kampala\\.tif", "", quarter_labels)
 quarter_labels <- gsub("_", " ", quarter_labels)
 
 names(kampala_stack) <- quarter_labels
@@ -262,7 +258,7 @@ $$ \|D\beta\|_1 = \sum_{\text{Horizontal Pairs}} |\beta_{\text{row}, \text{col}}
 ## 1. Extract matrix from raster
 
 ```{r}
-r_kampala_square <- kampala_rasters$ntl_2021_Q3_kampala.Rds
+r_kampala_square <- kampala_rasters$ntl_2021_Q3_kampala.tif
 
 # Extract pixel values as a continuous numeric vector
 v_kla_clean <- as.numeric(terra::values(r_kampala_square))
@@ -791,20 +787,20 @@ $$\|D\beta\|_1 = |\beta_{\text{Q2}} - \beta_{\text{Q1}}| + |\beta_{\text{Q3}} - 
 ```{r}
 files_2021 <- list.files(
   path       = kampala_dir,
-  pattern    = "ntl_2021_Q[1-4]_kampala\\.Rds$",
+  pattern    = "ntl_2021_Q[1-4]_kampala\\.tif$",
   full.names = TRUE
 ) %>% sort()
 ```
 
 ```{r}
 # 1. Load raster files
-r_list <- lapply(files_2021, readRDS)
+r_list <- lapply(files_2021, rast)
 
 # 2. Create a multi-layer SpatRaster
 r_stack <- terra::rast(r_list)
 
 # 3. Assign quarter labels to layers
-layer_names <- gsub("ntl_|_kampala\\.Rds", "", basename(files_2021))
+layer_names <- gsub("ntl_|_kampala\\.tif", "", basename(files_2021))
 names(r_stack) <- gsub("_", " ", layer_names)
 
 # 4. Extract spatial and temporal dimensions
@@ -1059,7 +1055,7 @@ file_info <- file_info[order(file_info$time_id), ]
 files_all <- file_info$file
 
 # 4. Load rasters and build stack
-r_list <- lapply(files_all, readRDS)
+r_list <- lapply(files_all, rast)
 r_stack <- terra::rast(r_list)
 
 # 5. Assign temporal names
