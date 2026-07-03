@@ -328,7 +328,7 @@ Where:
 
 - **Interpretation:** The resulting curve provides a numerical profile of the cross-validation error across the tuning parameter grid. The selected $\lambda_{\mathit{opt\_cv}}$ marks the exact mathematical minimum where the model achieves the best balance between bias and variance. However, because random spatial sampling alters the underlying graph structure during the validation steps, this data-driven choice should always be verified visually to ensure that the resulting segments retain the true structural coherence of Kampala's urban boundaries.
 
-```{r}
+``` r
 set.seed(123)
 n <- length(v_kla_clean)
 K <- 5
@@ -389,7 +389,7 @@ cat("CV computation time:\n")
 print(cv_time)
 ```
 
-```{r}
+``` r
 # 5. Plot the CV Curve
 plot(log(lambdas_safe), cv_mse, type = "l", col = "darkgreen", lwd = 2,
      xlab = "log(lambda)", ylab = "CV Mean Squared Error",
@@ -447,7 +447,7 @@ Where:
 
 - **Boundary sensitivity:** The fused lasso objective function is highly sensitive to artificial boundaries introduced by the block partitioning, which may slightly bias the selected $\lambda$ toward smoother solutions.
 
-```{r}
+``` r
 set.seed(123)
 n <- length(v_kla_clean)
 K <- 5
@@ -525,7 +525,7 @@ cat("CV computation time:\n")
 print(cv_time)
 ```
 
-```{r}
+``` r
 # 5. Plot the CV Curve
 plot(log(lambdas_safe), cv_mse, type = "l", col = "darkgreen", lwd = 2,
      xlab = "log(lambda)", ylab = "CV Mean Squared Error",
