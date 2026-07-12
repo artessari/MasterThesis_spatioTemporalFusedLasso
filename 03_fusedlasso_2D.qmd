@@ -27,6 +27,7 @@ library(genlasso)
 library(geodata)
 library(tidyterra)
 library(tidyverse)
+library(progress)
 
 # Folders
 data_dir <- file.path(getwd(), "data")
@@ -827,4 +828,238 @@ plot(r_smooth,
      main  = paste0("Fused Lasso (Lambda = ", round(selected_lambda, 3), ")"),
      col   = hcl.colors(100, "Viridis"),
      range = c(0, max(v_kla_clean)))
+```
+
+# 2D Fused Lasso Model Fitting across Raster Time Series
+
+## 1. Workspace Setup and File Selection
+
+```{r}
+# Define the files to process at the very beginning
+# Change this index range here to update all loops automatically
+files_to_process <- processed_files[38:39]
+```
+
+## 2. 2D Fused Lasso Model Fitting
+
+```{r}
+#| eval: false
+
+# Initialize the progress bar with elapsed time, ETA, and the active file token
+pb <- progress_bar$new(
+  format = " Processing [:bar] :percent | Elapsed: :elapsed | ETA: :eta | Active: :current_file",
+  total = length(files_to_process),
+  clear = FALSE,
+  width = 95
+)
+
+for (f in files_to_process) {
+  
+  # Extract the clean file name without the extension
+  base_name <- tools::file_path_sans_ext(basename(f))
+  
+  # Update the bar display to show the current file name BEFORE the heavy lifting starts
+  pb$tick(0, tokens = list(current_file = base_name))
+  
+  # Load the raster file
+  r_kampala_square <- rast(f)
+  
+  # Extract pixel values as a continuous numeric vector
+  v_kla_clean <- as.numeric(terra::values(r_kampala_square))
+  
+  # Store the spatial grid dimensions
+  nrow_k <- terra::nrow(r_kampala_square)
+  ncol_k <- terra::ncol(r_kampala_square)
+  
+  # Fit the 2D Fused Lasso model
+  # dim1 maps to columns and dim2 maps to rows 
+  # because terra extracts values row-by-row (Row-Major order)
+  fit <- fusedlasso2d(
+    y    = v_kla_clean,
+    dim1 = ncol_k,
+    dim2 = nrow_k
+  )
+  
+  # Generate a dynamic variable name for the output
+  var_name <- paste0("fit_", base_name)
+  
+  # Assign the fitted model directly to the global environment
+  assign(var_name, fit, envir = .GlobalEnv)
+  
+  # Advance the progress percentage and update the tokens for the next round
+  pb$tick(tokens = list(current_file = base_name))
+}
+```
+
+## 3. Optimal Regularization Selection via Spatial Lag-K BIC
+
+```{r}
+# Initialize a list to store the BIC results for each file
+bic_results <- list()
+
+for (f in files_to_process) {
+  
+  # Extract the clean file name without the extension
+  base_name <- tools::file_path_sans_ext(basename(f))
+  
+  # Retrieve the previously saved fit object from the global environment
+  fit_name <- paste0("fit_", base_name)
+  fit <- get(fit_name, envir = .GlobalEnv)
+  
+  # Load the raster file and extract grid properties
+  r_kampala_square <- rast(f)
+  v_kla_clean <- as.numeric(terra::values(r_kampala_square))
+  nrow_k <- terra::nrow(r_kampala_square)
+  ncol_k <- terra::ncol(r_kampala_square)
+  
+  # Extract the original data matrix from the raster object
+  mat <- terra::as.matrix(r_kampala_square, wide = TRUE)
+  
+  # Configure Autocorrelation Function (ACF) parameters
+  max_lag <- 10
+  acf_rows <- matrix(0, nrow = nrow(mat), ncol = max_lag + 1)
+  
+  # Compute row-by-row ACF to isolate local pixel behavior
+  for(i in 1:nrow(mat)) {
+    acf_rows[i, ] <- acf(mat[i, ], lag.max = max_lag, plot = FALSE)$acf
+  }
+  acf_mean_horizontal <- colMeans(acf_rows)
+  
+  # Define the critical threshold for local decorrelation
+  decorrelation_threshold <- 0.20
+  
+  # Extract the optimal lag dropping below the threshold (excluding lag 0)
+  optimal_step <- which(acf_mean_horizontal[-1] < decorrelation_threshold)[1]
+  
+  # Automatic fallback if no lag drops below the specified threshold
+  if (is.na(optimal_step)) optimal_step <- 3
+  
+  # Data Preparation for BIC evaluation
+  y_vec <- as.numeric(v_kla_clean)
+  n <- length(y_vec)
+  beta_mat <- as.matrix(fit$beta) 
+  
+  # Calculate Residual Sum of Squares (RSS)
+  rss <- colSums((beta_mat - y_vec)^2)
+  df_vec <- fit$df
+  
+  # Reshape Original Data Vector to 2D Spatial Grid
+  mat_grid <- matrix(y_vec, nrow = nrow_k, ncol = ncol_k, byrow = TRUE)
+  
+  # Estimate Error Variance (Sigma^2) via Spatial Lag-K Neumann Estimator
+  diff_h <- mat_grid[, -(1:optimal_step), drop = FALSE] - mat_grid[, -((ncol(mat_grid) - (optimal_step - 1)):ncol(mat_grid)), drop = FALSE]
+  diff_v <- mat_grid[-(1:optimal_step), , drop = FALSE] - mat_grid[-((nrow(mat_grid) - (optimal_step - 1)):nrow(mat_grid)), , drop = FALSE]
+  
+  # Final Lag-K Neumann variance estimate
+  sig2_est <- (mean(diff_h^2) + mean(diff_v^2)) / 2
+  
+  # Compute Sparsity-Stable BIC Score vector
+  bic_values_psbic <- (rss / sig2_est) + (df_vec * log(n))
+  
+  # Save the complete vector of BIC values into the storage list
+  bic_results[[base_name]] <- bic_values_psbic
+}
+```
+
+## 4. 5. Smoothed Raster Generation and Geometrical Integrity Check
+
+```{r}
+# Initialize a list to store the final smoothed coefficients for each file
+smoothed_results <- list()
+
+for (f in files_to_process) {
+  
+  # Extract the clean file name without the extension
+  base_name <- tools::file_path_sans_ext(basename(f))
+  
+  # Retrieve the previously saved fit object from the global environment
+  fit_name <- paste0("fit_", base_name)
+  fit <- get(fit_name, envir = .GlobalEnv)
+  
+  # Retrieve the calculated BIC vector for this file
+  current_bic <- bic_results[[base_name]]
+  
+  # Identify the index of the lowest BIC value
+  best_idx <- which.min(current_bic)
+  
+  # Extract the optimal lambda value from the model path
+  selected_lambda <- fit$lambda[best_idx]
+  
+  # Extract the smoothed beta coefficients for the selected optimal lambda
+  beta_smooth <- coef(fit, lambda = selected_lambda)$beta
+  
+  # Save the smoothed vector into the storage list
+  smoothed_results[[base_name]] <- beta_smooth
+}
+```
+
+```{r}
+# Initialize a list to store the final smoothed raster layers
+smoothed_rasters <- list()
+
+for (f in files_to_process) {
+  
+  # Extract the clean file name without the extension
+  base_name <- tools::file_path_sans_ext(basename(f))
+  
+  # Load the original raster file to clone its spatial structure
+  r_kampala_square <- rast(f)
+  r_smooth <- r_kampala_square
+  
+  # Retrieve the calculated smoothed coefficients for this file
+  beta_smooth <- smoothed_results[[base_name]]
+  
+  # Automated Integrity Check
+  # Verify that the vector length matches the total number of raster cells
+  stopifnot(length(beta_smooth) == terra::ncell(r_smooth))
+  
+  # Assign the estimated smoothed coefficients to the new raster object
+  terra::values(r_smooth) <- beta_smooth
+  
+  # Save the final raster object into the storage list
+  smoothed_rasters[[base_name]] <- r_smooth
+}
+```
+
+## 6. Spatial Comparative Visualization: Original vs. Fused Lasso Data
+
+```{r}
+for (f in files_to_process) {
+  
+  # Extract the clean file name without the extension
+  base_name <- tools::file_path_sans_ext(basename(f))
+  
+  # Load the original raster and extract its maximum value for consistent scaling
+  r_original <- rast(f)
+  v_kla_clean <- as.numeric(terra::values(r_original))
+  max_val <- max(v_kla_clean, na.rm = TRUE)
+  
+  # Retrieve the corresponding smoothed raster layer
+  r_smooth <- smoothed_rasters[[base_name]]
+  
+  # Retrieve the fit object to extract the selected optimal lambda value
+  fit_name <- paste0("fit_", base_name)
+  fit <- get(fit_name, envir = .GlobalEnv)
+  current_bic <- bic_results[[base_name]]
+  selected_lambda <- fit$lambda[which.min(current_bic)]
+  
+  # Set up a side-by-side plotting grid
+  par(mfrow = c(1, 2))
+  
+  # Plot the original data raster
+  plot(r_original,
+       main  = paste0(base_name, " - Original (log NTL)"),
+       col   = hcl.colors(100, "Viridis"),
+       range = c(0, max_val))
+  plot(kampala_border, add = TRUE, border = "blue", lwd = 1.5)
+  
+  # Plot the 2D Fused Lasso smoothed raster
+  plot(r_smooth,
+       main  = paste0("Fused Lasso (Lambda = ", round(selected_lambda, 3), ")"),
+       col   = hcl.colors(100, "Viridis"),
+       range = c(0, max_val))
+}
+
+# Reset the plotting layout to standard single plots
+par(mfrow = c(1, 1))
 ```
