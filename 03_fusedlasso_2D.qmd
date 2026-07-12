@@ -848,7 +848,7 @@ files_to_process <- processed_files[38:39]
 
 # Initialize the progress bar with elapsed time, ETA, and the active file token
 pb <- progress_bar$new(
-  format = " Processing [:bar] :percent | Elapsed: :elapsed | ETA: :eta | Active: :current_file",
+  format = " Processing [:bar] :percent | ETA: :eta | Elapsed: :elapsed | Active: :current_file",
   total = length(files_to_process),
   clear = FALSE,
   width = 95
@@ -859,7 +859,7 @@ for (f in files_to_process) {
   # Extract the clean file name without the extension
   base_name <- tools::file_path_sans_ext(basename(f))
   
-  # Update the bar display to show the current file name BEFORE the heavy lifting starts
+  # Update the bar display 
   pb$tick(0, tokens = list(current_file = base_name))
   
   # Load the raster file
@@ -1082,34 +1082,52 @@ for (f in files_to_process) {
   current_bic <- bic_results[[base_name]]
   selected_lambda <- fit$lambda[which.min(current_bic)]
   
+  bbox <- sf::st_bbox(r_original)
+  x_range <- bbox["xmax"] - bbox["xmin"]
+  y_range <- bbox["ymax"] - bbox["ymin"]
+  pad_x <- x_range * 0.02   # 2% padding
+  pad_y <- y_range * 0.02
+  
   base_style <- list(
     scale_fill_viridis_c(
       option = "viridis",
       na.value = "transparent",
-      name = NULL, 
+      name = "log(NTL)",
       limits = c(min_val, max_val),
       breaks = seq(0, max_val, by = 0.5)
     ),
+    coord_sf(
+      xlim = c(bbox["xmin"] - pad_x, bbox["xmax"] + pad_x),
+      ylim = c(bbox["ymin"] - pad_y, bbox["ymax"] + pad_y),
+      expand = FALSE
+    ),
+    scale_x_continuous(breaks = scales::pretty_breaks(n = 4)),
     theme_minimal(), 
     theme(
       plot.title = element_text(hjust = 0.5, face = "bold", size = 12), 
       axis.text.y = element_text(angle = 90, hjust = 0.5),
       legend.position = "right", 
       legend.key.height = unit(2, "cm"),
+      legend.title = element_text(size = 10, face = "bold")
     )
   )
   
   # 1. Generate original raster plot
+  parts <- strsplit(base_name, "_")[[1]]
+  year   <- parts[2]
+  quarter <- parts[3]
+  city   <- tools::toTitleCase(parts[4])  # "kampala" -> "Kampala
+  
   p1 <- ggplot() +
     geom_spatraster(data = r_original) +
     geom_sf(data = kampala_border, fill = NA, color = "blue", linewidth = 0.6) +
-    labs(title = paste0(base_name, " - Original (log NTL)")) +
+    labs(title = paste0(city, " (", quarter, " ", year, ") — Original")) +
     base_style
   
   # 2. Generate smoothed raster plot 
   p2 <- ggplot() +
     geom_spatraster(data = r_smooth) +
-    labs(title = paste0("Fused Lasso (Lambda = ", round(selected_lambda, 3), ")")) +
+    labs(title = bquote(bold("Fused Lasso (" * lambda * " = " * .(round(selected_lambda, 3)) * ")"))) +
     base_style
   
   shared_legend <- cowplot::get_legend(p1)
