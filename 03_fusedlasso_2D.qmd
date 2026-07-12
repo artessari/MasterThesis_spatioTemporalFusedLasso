@@ -28,6 +28,7 @@ library(geodata)
 library(tidyterra)
 library(tidyverse)
 library(progress)
+library(cowplot)
 
 # Folders
 data_dir <- file.path(getwd(), "data")
@@ -1059,7 +1060,72 @@ for (f in files_to_process) {
        col   = hcl.colors(100, "Viridis"),
        range = c(0, max_val))
 }
+```
 
-# Reset the plotting layout to standard single plots
-par(mfrow = c(1, 1))
+```{r}
+for (f in files_to_process) {
+  
+  base_name <- tools::file_path_sans_ext(basename(f))
+  
+  # Load original raster and compute scale limits
+  r_original <- rast(f)
+  v_kla_clean <- as.numeric(terra::values(r_original))
+  min_val <- min(v_kla_clean, na.rm = TRUE)
+  max_val <- max(v_kla_clean, na.rm = TRUE)
+  
+  # Retrieve corresponding smoothed raster
+  r_smooth <- smoothed_rasters[[base_name]]
+  
+  # Retrieve fit object and optimal lambda via BIC
+  fit_name <- paste0("fit_", base_name)
+  fit <- get(fit_name, envir = .GlobalEnv)
+  current_bic <- bic_results[[base_name]]
+  selected_lambda <- fit$lambda[which.min(current_bic)]
+  
+  base_style <- list(
+    scale_fill_viridis_c(
+      option = "viridis",
+      na.value = "transparent",
+      name = NULL, 
+      limits = c(min_val, max_val),
+      breaks = seq(0, max_val, by = 0.5)
+    ),
+    theme_minimal(), 
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 12), 
+      axis.text.y = element_text(angle = 90, hjust = 0.5),
+      legend.position = "right", 
+      legend.key.height = unit(2, "cm"),
+    )
+  )
+  
+  # 1. Generate original raster plot
+  p1 <- ggplot() +
+    geom_spatraster(data = r_original) +
+    geom_sf(data = kampala_border, fill = NA, color = "blue", linewidth = 0.6) +
+    labs(title = paste0(base_name, " - Original (log NTL)")) +
+    base_style
+  
+  # 2. Generate smoothed raster plot 
+  p2 <- ggplot() +
+    geom_spatraster(data = r_smooth) +
+    labs(title = paste0("Fused Lasso (Lambda = ", round(selected_lambda, 3), ")")) +
+    base_style
+  
+  shared_legend <- cowplot::get_legend(p1)
+  
+  p1 <- p1 + theme(legend.position = "none")
+  p2 <- p2 + theme(legend.position = "none")
+  
+  plots_combined <- cowplot::plot_grid(p1, p2, ncol = 2)
+  
+  final_grid <- cowplot::plot_grid(
+    plots_combined, 
+    shared_legend, 
+    ncol = 2, 
+    rel_widths = c(0.90, 0.10)
+  )
+  
+  print(final_grid)
+}
 ```
