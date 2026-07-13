@@ -853,6 +853,15 @@ plot(r_smooth,
 files_to_process <- processed_files[38:39]
 ```
 
+```{r}
+# Define and create the model-specific subfolder within the main fits directory
+fused_lasso_fits_folder <- file.path(model_output_folder, "FusedLasso2D")
+
+if (!dir.exists(fused_lasso_fits_folder)) {
+  dir.create(fused_lasso_fits_folder)
+}
+```
+
 ## 2. 2D Fused Lasso Model Fitting
 
 ```{r}
@@ -894,7 +903,7 @@ for (f in files_to_process) {
   )
   
   # Define the absolute target destination path using the directory variable
-  output_path <- file.path(model_output_folder, paste0("fit_", base_name, ".rds"))
+  output_path <- file.path(fused_lasso_fits_folder, paste0("fit_", base_name, ".rds"))
   
   # Serialize and save the model object directly to the disk drive
   saveRDS(fit, file = output_path)
