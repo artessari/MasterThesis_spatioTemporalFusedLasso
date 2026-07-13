@@ -1051,6 +1051,15 @@ for (f in files_to_process) {
 ## 6. Spatial Comparative Visualization: Original vs. Fused Lasso Data
 
 ```{r}
+# Define and create the model-specific subfolder within the main plots directory
+fused_lasso_plots_folder <- file.path(plots_output_folder, "FusedLasso2D")
+
+if (!dir.exists(fused_lasso_plots_folder)) {
+  dir.create(fused_lasso_plots_folder)
+}
+```
+
+```{r}
 for (f in files_to_process) {
   
   # Extract the clean file name without the extension
@@ -1142,7 +1151,7 @@ for (f in files_to_process) {
   parts <- strsplit(base_name, "_")[[1]]
   year   <- parts[2]
   quarter <- parts[3]
-  city   <- tools::toTitleCase(parts[4])  # "kampala" -> "Kampala
+  city   <- tools::toTitleCase(parts[4])  # "kampala" -> "Kampala"
   
   p1 <- ggplot() +
     geom_spatraster(data = r_original) +
@@ -1168,6 +1177,19 @@ for (f in files_to_process) {
     shared_legend, 
     ncol = 2, 
     rel_widths = c(0.90, 0.10)
+  )
+  
+  # Define the absolute target destination path for the output image file
+  plot_output_path <- file.path(fused_lasso_plots_folder, paste0("FusedLasso2D_", base_name, ".png"))
+  
+  # Export and save the combined grid layout directly to the local storage drive
+  ggsave(
+    filename = plot_output_path,
+    plot = final_grid,
+    width = 12,
+    height = 6,
+    dpi = 300,
+    bg = "white"
   )
   
   print(final_grid)
