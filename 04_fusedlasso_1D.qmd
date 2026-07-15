@@ -32,6 +32,18 @@ library(tidyverse)
 data_dir <- file.path(getwd(), "data")
 kampala_dir <- file.path(data_dir, "kampala")
 
+# Output directories 
+model_output_folder <- "output_fits"
+plots_output_folder <- "output_plots"
+
+if (!dir.exists(model_output_folder)) {
+  dir.create(model_output_folder)
+}
+
+if (!dir.exists(plots_output_folder)) {
+  dir.create(plots_output_folder)
+}
+
 # Load the official administrative boundaries
 roi_sf <- readRDS("./data/gadm/gadm41_UGA_1_pk.rds")
 kampala_border <- roi_sf[roi_sf$NAME_1 == "Kampala"]
@@ -47,27 +59,35 @@ $$\hat{\beta} = \arg\min_{\beta} \left\{ \frac{1}{2} \sum_{t=1}^{T} (y_t - \beta
 
 The objective criteria are defined by two competing dynamics:
 
-- **Data Fidelity Term** ($\frac{1}{2} \sum_{t=1}^{T} (y_t - \beta_t)^2$): Measures the squared Euclidean distance between the observed log-transformed quarterly radiance ($y_t$) and the estimated structural trajectory ($\beta_t$) at each time step $t$. This component anchors the model to the temporal reality of each pixel, preventing the regularization path from deviating too far from the empirical satellite observations recorded across the quarters.
+-   **Data Fidelity Term** ($\frac{1}{2} \sum_{t=1}^{T} (y_t - \beta_t)^2$): Measures the squared Euclidean distance between the observed log-transformed quarterly radiance ($y_t$) and the estimated structural trajectory ($\beta_t$) at each time step $t$. This component anchors the model to the temporal reality of each pixel, preventing the regularization path from deviating too far from the empirical satellite observations recorded across the quarters.
 
-- **Temporal Sparsity Penalty:** $\sum_{t=1}^{T-1} |\beta_{t+1} - \beta_t|$, an $L_1$ penalty applied to successive quarterly variations. It forces sequential quarters to share identical values ($\beta_{t+1} = \beta_t$) unless a sharp, structurally significant change in light emissions occurs.
+-   **Temporal Sparsity Penalty:** $\sum_{t=1}^{T-1} |\beta_{t+1} - \beta_t|$, an $L_1$ penalty applied to successive quarterly variations. It forces sequential quarters to share identical values ($\beta_{t+1} = \beta_t$) unless a sharp, structurally significant change in light emissions occurs.
 
-- **Tuning Parameter** ($\lambda \ge 0$): Controls the structural trade-off between tracking every quarterly fluctuation ($\lambda = 0$) and forcing global temporal homogeneity ($\lambda \to \infty$).
+-   **Tuning Parameter** ($\lambda \ge 0$): Controls the structural trade-off between tracking every quarterly fluctuation ($\lambda = 0$) and forcing global temporal homogeneity ($\lambda \to \infty$).
 
 ### Structural Matrix Operators ($D$ Matrix)
 
-For $T = 56$ quarters, the first-order forward difference penalty matrix $D \in \mathbb{R}^{(T-1) \times T}$ is explicitly constructed by the 1D solver as:
+For $T = 56$ quarters, the first-order forward difference penalty matrix $D \in \mathbb{R}^{(T-1) \times T}$ ($D \in \mathbb{R}^{55 \times 56}$) is explicitly constructed by the 1D solver as a bidiagonal matrix of the form:
 
-$$D = \begin{bmatrix} -1 &  1 &  0 &  0 \\ 0 & -1 &  1 &  0 \\ 0 &  0 & -1 &  1 \end{bmatrix}$$
+$$D = \begin{bmatrix}  -1 &  1 &  0 &  0 & \cdots &  0 &  0 \\   0 & -1 &  1 &  0 & \cdots &  0 &  0 \\   0 &  0 & -1 &  1 & \cdots &  0 &  0 \\   \vdots & \vdots & \vdots & \vdots & \ddots & \vdots & \vdots \\   0 &  0 &  0 &  0 & \cdots & -1 &  1  \end{bmatrix}$$
 
-Multiplying this structural topology against the parameter vector yields the absolute differences for the active penalization path:
+Multiplying this structural topology against the 56-dimensional parameter vector $\beta \in \mathbb{R}^{56}$ yields the complete vector of adjacent differences:
 
-$$\|D\beta\|_1 = |\beta_{\text{Q2}} - \beta_{\text{Q1}}| + |\beta_{\text{Q3}} - \beta_{\text{Q2}}| + |\beta_{\text{Q4}} - \beta_{\text{Q3}}|$$
+$$
+D\beta = \begin{bmatrix}  \beta_{\text{Q2}} - \beta_{\text{Q1}} \\  \beta_{\text{Q3}} - \beta_{\text{Q2}} \\  \beta_{\text{Q4}} - \beta_{\text{Q3}} \\  \vdots \\  \beta_{\text{Q56}} - \beta_{\text{Q55}}  \end{bmatrix}
+$$
+
+Applying the $L_1$ norm to this product yields the sum of all absolute quarterly changes across the active penalization path:
+
+$$
+\Vert{}D\beta\Vert{}_1 = \sum_{t=1}^{55} \vert{}\beta_{t+1} - \beta_t\vert{} = \vert{}\beta_{\text{Q2}} - \beta_{\text{Q1}}\vert{} + \vert{}\beta_{\text{Q3}} - \beta_{\text{Q2}}\vert{} + \dots + \vert{}\beta_{\text{Q56}} - \beta_{\text{Q55}}\vert{}
+$$
 
 ### Methodological Implications of the Quarter-Based Setup
 
-- **Anisotropy over Time:** Unlike moving averages or spline smoothers that smooth out transitions smoothly, the 1D Fused Lasso isolates sharp shocks or sudden structural drops/jumps in economic activity between quarters, maintaining perfect piecewise constant steps.
+-   **Temporal Anisotropy (Sharp Shocks):** Unlike moving averages or spline smoothers that smooth out temporal transitions over time, the 1D Fused Lasso isolates abrupt shocks or sudden structural drops/jumps in economic activity between successive quarters. It preserves these sharp changes by maintaining a perfect piecewise constant trajectory (step function) rather than artificial, continuous transitions.
 
-- **Pixel-Wise Independence:** The model evaluates each coordinate cell on its own timeline. This allows the discovery of localized temporal trends (such as a single neighborhood undergoing rapid infrastructure expansion during Q3) without leaking information into adjacent spatial pixels.
+-   **Pixel-Wise Independence:** The model evaluates each geographical coordinate cell on its own isolated timeline. This prevents spatial autocorrelation artifacts, allowing the discovery of highly localized temporal trends (such as a single neighborhood undergoing rapid infrastructure expansion in a specific quarter) without leaking signal or smoothing trends into adjacent spatial pixels.
 
 ## 1. Load and prep all quarters
 
