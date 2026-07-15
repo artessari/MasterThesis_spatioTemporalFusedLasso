@@ -239,8 +239,12 @@ opt_idx <- which.min(df_plot$bic)
 opt_log_lambda <- df_plot$log_lambda[opt_idx]
 opt_lambda     <- fit_i$lambda[opt_idx]
 
-lambda_label <- paste0("Optimal log(lambda) = ", round(opt_log_lambda, 3), 
-                       "\n(lambda = ", round(opt_lambda, 3), ")")
+lambda_label <- bquote(
+  atop(
+    "Optimal " * log(lambda) == .(round(opt_log_lambda, 3)),
+    "(" * lambda == .(round(opt_lambda, 3)) * ")"
+  )
+)
 
 ggplot(df_plot, aes(x = log_lambda)) +
   geom_line(aes(y = rss_scaled, color = "Data Fidelity (RSS / sigma^2)"), linewidth = 0.5, linetype = "longdash") +
@@ -250,11 +254,11 @@ ggplot(df_plot, aes(x = log_lambda)) +
   annotate("text", 
            x = opt_log_lambda + 0.15, 
            y = max(df_plot$bic) * 0.9, 
-           label = lambda_label, 
+           label = list(lambda_label),
+           parse = TRUE,
            color = "red", 
            hjust = 0, 
            size = 3.5) +
-  # Colori e legenda
   scale_color_manual(values = c(
     "Data Fidelity (RSS / sigma^2)" = "darkorange",
     "Complexity Penalty (df * log(T))" = "darkgreen",
@@ -262,15 +266,28 @@ ggplot(df_plot, aes(x = log_lambda)) +
   )) +
   labs(
     title = "1D Fused Lasso: BIC Path Selection",
-    x = "log(lambda)",
+    subtitle = "Variance Estimated via Robust Temporal First-Difference (von Neumann Lag-1) Estimator",
+    x = expression(log(lambda)),
     y = "Score Value",
     color = "Metrics"
   ) +
   theme_minimal() +
   theme(
     legend.position = "bottom",
-    plot.title = element_text(face = "bold", hjust = 0.5, size = 14)
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 14, margin = margin(b = 4)),
+    plot.subtitle = element_text(size = 9, color = "gray40", hjust = 0.5, margin = margin(b = 10))
   )
+```
+
+```{r}
+ggsave(
+  filename = file.path(plots_output_folder, "FusedLasso1D_BIC_path_selection.png"),
+  plot = last_plot(), 
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
 ```
 
 ## 3. Reconstruct smoothed raster stack
