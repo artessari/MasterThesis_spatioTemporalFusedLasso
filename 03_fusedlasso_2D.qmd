@@ -713,21 +713,34 @@ df_plot <- data.frame(
 )
 
 x_opt <- log(lambda_opt_bic_psbic)
-lambda_label_psbic <- paste0("Optimal log(lambda) = ", round(x_opt, 3),
-                             "\n(lambda = ", round(lambda_opt_bic_psbic, 3), ")")
+lambda_label_psbic <- bquote(
+  atop(
+    "Optimal " * log(lambda) == .(round(x_opt, 3)),
+    "(" * lambda == .(round(lambda_opt_bic_psbic, 3)) * ")"
+  )
+)
+
+raster_source <- terra::sources(r_kampala_square)
+quarter_label <- gsub("_", " ", sub(".*_(\\d{4}_Q\\d)_.*", "\\1", raster_source))
 
 y_pos <- min(df_plot$bic) + 0.9 * (max(df_plot$bic) - min(df_plot$bic))
 
 ggplot(df_plot, aes(x = log_lambda, y = bic)) +
   geom_line(color = "darkblue", linewidth = 0.5) +
   geom_vline(xintercept = x_opt, color = "red", linetype = "dashed", linewidth = 0.5) +
-  annotate("text", x = x_opt + 0.05, y = y_pos, label = lambda_label_psbic, 
-           color = "red", hjust = 0, size = 3.5, lineheight = 0.9) +
+  annotate("text", 
+           x = x_opt + 0.05, 
+           y = max(df_plot$bic) * 0.9,  
+           label = list(lambda_label_psbic),
+           parse = TRUE,
+           color = "red", 
+           hjust = 0, 
+           size = 3.5) +
   scale_x_continuous(breaks = seq(floor(min(df_plot$log_lambda)), ceiling(max(df_plot$log_lambda)), by = 0.5)) +
   labs(
-    title = "Optimal Lambda Selection via Pathwise Scaled BIC",
+    title = paste0("Optimal Lambda Selection via Pathwise Scaled BIC — ", quarter_label),
     subtitle = paste0("Variance Estimated via Data-Driven Spatial Lag-", optimal_step, " Neumann Estimator"),
-    x = "log(lambda)",
+    x = expression(log(lambda)),
     y = "Pathwise Scaled BIC Score"
   ) +
   theme_minimal() +
@@ -742,7 +755,7 @@ ggplot(df_plot, aes(x = log_lambda, y = bic)) +
 
 ```{r}
 ggsave(
-  filename = file.path(plots_output_folder, "FusedLasso2D_BIC_path_selection.png"),
+  filename = file.path(plots_output_folder, paste0("FusedLasso2D_BIC_path_selection_", gsub(" ", "_", quarter_label), ".png")),
   plot = last_plot(), 
   width = 12,
   height = 6,
@@ -1055,44 +1068,6 @@ if (!dir.exists(fused_lasso_plots_folder)) {
 ```{r}
 for (f in files_to_process) {
   
-  # Extract the clean file name without the extension
-  base_name <- tools::file_path_sans_ext(basename(f))
-  
-  # Load the original raster and extract its maximum value for consistent scaling
-  r_original <- rast(f)
-  v_kla_clean <- as.numeric(terra::values(r_original))
-  max_val <- max(v_kla_clean, na.rm = TRUE)
-  
-  # Retrieve the corresponding smoothed raster layer
-  r_smooth <- smoothed_rasters[[base_name]]
-  
-  # Retrieve the fit object to extract the selected optimal lambda value
-  fit_name <- paste0("fit_", base_name)
-  fit <- get(fit_name, envir = .GlobalEnv)
-  current_bic <- bic_results[[base_name]]
-  selected_lambda <- fit$lambda[which.min(current_bic)]
-  
-  # Set up a side-by-side plotting grid
-  par(mfrow = c(1, 2))
-  
-  # Plot the original data raster
-  plot(r_original,
-       main  = paste0(base_name, " - Original (log NTL)"),
-       col   = hcl.colors(100, "Viridis"),
-       range = c(0, max_val))
-  plot(kampala_border, add = TRUE, border = "blue", lwd = 1.5)
-  
-  # Plot the 2D Fused Lasso smoothed raster
-  plot(r_smooth,
-       main  = paste0("Fused Lasso (Lambda = ", round(selected_lambda, 3), ")"),
-       col   = hcl.colors(100, "Viridis"),
-       range = c(0, max_val))
-}
-```
-
-```{r}
-for (f in files_to_process) {
-  
   base_name <- tools::file_path_sans_ext(basename(f))
   
   # Load original raster and compute scale limits
@@ -1136,7 +1111,7 @@ for (f in files_to_process) {
       axis.text.y = element_text(angle = 90, hjust = 0.5),
       legend.position = "right", 
       legend.key.height = unit(2, "cm"),
-      legend.title = element_text(size = 10, face = "bold")
+      legend.title = element_text(size = 10, face = "bold", hjust = 0.5)
     )
   )
   
