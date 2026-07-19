@@ -246,6 +246,16 @@ plot(as.numeric(r_stack[sample(tending_increasing, 1)]), type = "l")
 plot(as.numeric(r_stack[sample(tending_decreasing, 1)]), type = "l")
 ```
 
+For each pixel, the long-term trend is measured as the net change between the final and initial values of the smoothed trajectory ($\beta_{mat[, T]} - \beta_{mat[, 1]}$), evaluated against that pixel's own noise scale ($\hat{\sigma}$, estimated during the fused lasso fit) rather than a city-wide benchmark.
+
+An asymmetric rule is applied:
+
+- **Decreasing**: Any negative net change is classified as Decreasing, since these pixels are already a small minority and should not be filtered further.
+
+- **Increasing**: A positive net change is classified as Increasing only if it exceeds $1 \times \hat{\sigma}$, distinguishing genuine structural growth from residual noise.
+
+- **Mostly Constant**: All remaining pixels—those with negligible positive changes below this threshold—are classified as Mostly Constant.
+
 ```{r}
 # Net change: difference between final and initial value of the smoothed trajectory
 net_change <- beta_mat[, T_layers] - beta_mat[, 1]
@@ -257,7 +267,7 @@ noise_sd <- sqrt(sig2_est_vec)
 # considered structurally significant (rather than residual noise).
 # Decreasing pixels are kept as-is (no tolerance), since they are already
 # a small minority and should not be further reduced.
-k <- 0.5
+k <- 1
 
 tending_increasing <- which(net_change >  k * noise_sd)
 tending_decreasing <- which(net_change < 0)
@@ -288,8 +298,7 @@ plot(as.numeric(r_stack[sample(mostly_constant, 1)]), type = "l")
 ```{r}
 plot_fused_lasso_bic <- function(trend_group_vector, group_name, output_folder = NULL) {
   
-  # Set seed for reproducibility and select a stable random pixel from the group
-  set.seed(2485) 
+  # Select a stable random pixel from the group
   chosen_pixel_idx <- sample(trend_group_vector, 1)
   
   # Extract the raw temporal vector for this specific pixel
@@ -406,6 +415,7 @@ plot_fused_lasso_bic <- function(trend_group_vector, group_name, output_folder =
 ```
 
 ```{r}
+set.seed(2485) 
 plot_fused_lasso_bic(tending_increasing, "increasing", plots_output_folder)
 plot_fused_lasso_bic(tending_decreasing, "decreasing", plots_output_folder)
 plot_fused_lasso_bic(mostly_constant, "mostly constant", plots_output_folder)
@@ -628,8 +638,7 @@ par(mfrow = c(1, 1), mar = c(5, 4, 4, 2) + 0.1, oma = c(0, 0, 0, 0))
 ```{r}
 plot_observed_vs_fused <- function(pixel_vector, group_name, original_stack, smooth_stack) {
   
-  # Set seed for reproducibility and extract a random pixel from the dynamic group
-  set.seed(2485) 
+  # Extract a random pixel from the dynamic group
   chosen_pixel_idx <- sample(pixel_vector, 1)
   
   # Extract values directly from the raster stacks across all quarters
@@ -691,6 +700,7 @@ plot_observed_vs_fused <- function(pixel_vector, group_name, original_stack, smo
 ```
 
 ```{r}
+set.seed(2485) 
 plot_observed_vs_fused(tending_increasing, "Increasing", r_stack, r_smooth_stack)
 plot_observed_vs_fused(tending_decreasing, "Decreasing", r_stack, r_smooth_stack)
 plot_observed_vs_fused(mostly_constant, "Mostly Constant", r_stack, r_smooth_stack)
