@@ -308,7 +308,7 @@ cat("Pixels that are mostly constant:", length(mostly_constant), "\n")
 plot_fused_lasso_bic <- function(trend_group_vector, group_name, output_folder = NULL) {
   
   # Set seed for reproducibility and select a stable random pixel from the group
-  set.seed(42) 
+  set.seed(2485) 
   chosen_pixel_idx <- sample(trend_group_vector, 1)
   
   # Extract the raw temporal vector for this specific pixel
@@ -351,19 +351,38 @@ plot_fused_lasso_bic <- function(trend_group_vector, group_name, output_folder =
     )
   )
   
-  # Generate the final plot
+  # Generate the final plot structure first to check its actual x-axis limits
   p <- ggplot(df_plot, aes(x = log_lambda)) +
     geom_line(aes(y = rss_scaled, color = "Data Fidelity (RSS / sigma^2)"), linewidth = 0.5, linetype = "longdash") +
     geom_line(aes(y = penalty, color = "Complexity Penalty (df * log(T))"), linewidth = 0.5, linetype = "longdash") +
     geom_line(aes(y = bic, color = "Total BIC Score"), linewidth = 0.5) +
-    geom_vline(xintercept = opt_log_lambda, color = "red", linetype = "dashed", linewidth = 0.5) +
+    geom_vline(xintercept = opt_log_lambda, color = "red", linetype = "dashed", linewidth = 0.5)
+  
+  # Extract the structural plot build to find the exact upper boundary of the x-axis
+  plot_layout <- ggplot_build(p)$layout$panel_params[[1]]
+  x_max_limit <- plot_layout$x.range[2]
+  
+  # Determine text position dynamically based on the visual chart space
+  text_offset <- 0.15
+  estimated_text_width <- 1.2
+  
+  if ((opt_log_lambda + text_offset + estimated_text_width) > x_max_limit) {
+    x_pos <- opt_log_lambda - text_offset
+    h_just <- 1
+  } else {
+    x_pos <- opt_log_lambda + text_offset
+    h_just <- 0
+  }
+  
+  # Append the dynamic text annotation layer and the rest of the layout configurations
+  p <- p +
     annotate("text", 
-             x = opt_log_lambda + 0.15, 
+             x = x_pos, 
              y = max(df_plot$bic) * 0.9, 
              label = list(lambda_label),
              parse = TRUE,
              color = "red", 
-             hjust = 0, 
+             hjust = h_just, 
              size = 3.5) +
     scale_color_manual(values = c(
       "Data Fidelity (RSS / sigma^2)" = "darkorange",
@@ -626,143 +645,72 @@ par(mfrow = c(1, 1), mar = c(5, 4, 4, 2) + 0.1, oma = c(0, 0, 0, 0))
 ## Pixel-Level Temporal Trajectories
 
 ```{r}
-set.seed(3478)
-pix_id <- sample(which(rowSums(is.na(Y)) == 0), 1)
-
-y_obs <- Y[pix_id, ]
-
-fit_i <- genlasso::trendfilter(y = y_obs, ord = 0)
-
-beta_path <- as.matrix(fit_i$beta)
-df_vec <- fit_i$df
-
-rss_vec <- colSums((beta_path - y_obs)^2)
-sig2 <- mean(diff(y_obs)^2) / 2
-
-bic_vec <- (rss_vec / sig2) + df_vec * log(T_layers)
-
-best_idx <- which.min(bic_vec)
-
-beta_hat <- beta_path[, best_idx]
-
-time <- 1:T_layers
-
-plot(time, y_obs,
-     type = "b",
-     pch = 16,
-     col = "black",
-     lwd = 2,
-     xlab = "Quarter",
-     ylab = "Log Nighttime Lights",
-     main = paste("Pixel", pix_id, "- Observed vs Fused Lasso"))
-
-lines(time, beta_hat,
-      type = "b",
-      pch = 16,
-      col = "red",
-      lwd = 2)
-
-legend("topleft",
-       legend = c("Observed", "Fused Lasso"),
-       col = c("black", "red"),
-       lty = 1,
-       pch = 16)
-```
-
-```{r}
-# 1. Load all files
-files_all <- list.files(
-  path = kampala_dir,
-  full.names = TRUE
-) %>% sort()
-
-# 2. Extract temporal metadata
-file_info <- data.frame(
-  file = files_all,
-  year = str_extract(files_all, "20[0-9]{2}"),
-  quarter = str_extract(files_all, "Q[1-4]")
-)
-
-# 3. Create temporal index and sort
-file_info$time_id <- as.integer(file_info$year) * 10 +
-  as.integer(substr(file_info$quarter, 2, 2))
-
-file_info <- file_info[order(file_info$time_id), ]
-files_all <- file_info$file
-
-# 4. Load rasters and build stack
-r_list <- lapply(files_all, rast)
-r_stack <- terra::rast(r_list)
-
-# 5. Assign temporal names
-names(r_stack) <- paste0(file_info$year, "-", file_info$quarter)
-
-# 6. Extract pixel-time matrix
-Y <- terra::values(r_stack)
-
-n_cells  <- nrow(Y)
-T_layers <- ncol(Y)
-
-# 7. Fit pixel-wise fused lasso (trendfilter)
-beta_mat <- matrix(NA, nrow = n_cells, ncol = T_layers)
-
-for (i in seq_len(n_cells)) {
+plot_observed_vs_fused <- function(pixel_vector, group_name, original_stack, smooth_stack) {
   
-  y_i <- as.numeric(Y[i, ])
+  # Set seed for reproducibility and extract a random pixel from the dynamic group
+  set.seed(2485) 
+  chosen_pixel_idx <- sample(pixel_vector, 1)
   
-  fit_i <- genlasso::trendfilter(y = y_i, ord = 0)
+  # Extract values directly from the raster stacks across all quarters
+  y_obs    <- as.numeric(original_stack[chosen_pixel_idx])
+  beta_hat <- as.numeric(smooth_stack[chosen_pixel_idx])
+  time     <- 1:length(y_obs)
   
-  beta_path <- as.matrix(fit_i$beta)
-  df_vec <- fit_i$df
+  # Get the full list of text labels from the stack
+  quarter_labels <- names(original_stack)
   
-  residuals <- sweep(beta_path, 1, y_i, "-")
-  rss_vec <- colSums(residuals^2)
+  # Create indices to show only 1 label every 4 quarters (e.g., every Q1)
+  thinned_breaks <- seq(1, length(time), by = 4)
+  thinned_labels <- quarter_labels[thinned_breaks]
   
-  sig2_est <- mean(diff(y_i)^2) / 2
-  if (sig2_est <= 0) sig2_est <- 1e-6
+  # Create a clean long-format dataframe for ggplot (keeping Quarter numeric)
+  df_plot <- data.frame(
+    Quarter = rep(time, 2),
+    Value   = c(y_obs, beta_hat),
+    Type    = rep(c("Observed", "Fused Lasso"), each = length(time))
+  )
   
-  bic_vec <- (rss_vec / sig2_est) + (df_vec * log(T_layers))
+  # Build the visualization
+  p <- ggplot(df_plot, aes(x = Quarter, y = Value, color = Type, group = Type)) +
+    geom_line(linewidth = 0.5) +
+    geom_point(size = 1) +
+    scale_color_manual(values = c("Observed" = "black", "Fused Lasso" = "red")) +
+    # Apply thinned breaks and labels onto a continuous scale
+    scale_x_continuous(breaks = thinned_breaks, labels = thinned_labels) +
+    labs(
+      title = paste("Pixel", chosen_pixel_idx, "- Observed vs Fused Lasso"),
+      subtitle = paste("Dynamic Group:", group_name),
+      x = "Timeline",
+      y = "Log Nighttime Lights",
+      color = NULL
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", hjust = 0.5, size = 13),
+      plot.subtitle = element_text(size = 10, color = "gray40", hjust = 0.5, margin = margin(b = 10)),
+      axis.text.x = element_text(angle = 45, hjust = 1), 
+      legend.position = "bottom"
+    )
   
-  best_idx <- which.min(bic_vec)
+  # Define destination file path using the group name and pixel ID, then save to disk
+  clean_group_name <- gsub(" ", "_", group_name)
+  plot_output_path <- file.path(plots_output_folder, paste0("FusedLasso1D_Pixel_Trajectories_", clean_group_name, ".png"))
   
-  beta_mat[i, ] <- beta_path[, best_idx]
-  
-  if (i %% 500 == 0) cat("Pixel", i, "of", n_cells, "\n")
+  ggsave(
+    filename = plot_output_path,
+    plot = p,
+    width = 12,
+    height = 6,
+    dpi = 300,
+    bg = "white"
+  )
+
+  return(p)
 }
-
-cat("Done. Pixels processed:", n_cells, "\n")
-
-# 8. Reconstruct raster stack (smoothed)
-r_smooth_stack <- r_stack
-terra::values(r_smooth_stack) <- beta_mat
-names(r_smooth_stack) <- names(r_stack)
 ```
 
 ```{r}
-# 9. Choose a pixel to visualize
-pixel_id <- 1 
-
-obs <- Y[pixel_id, ]
-smooth <- beta_mat[pixel_id, ]
-
-time <- seq_len(T_layers)
-```
-
-```{r}
-# 10. Plot observed vs smoothed time series
-plot(time, obs,
-     type = "l",
-     col = "black",
-     xlab = "Time",
-     ylab = "Log Nighttime Light Radiance",
-     main = paste("Pixel", pixel_id, "- Observed vs Fused Lasso"))
-
-lines(time, smooth,
-      type = "l",
-      col = "red")
-
-legend("topleft",
-       legend = c("Observed", "Fused lasso"),
-       col = c("black", "red"),
-       lty = 1)
+plot_observed_vs_fused(tending_increasing, "Increasing", r_stack, r_smooth_stack)
+plot_observed_vs_fused(tending_decreasing, "Decreasing", r_stack, r_smooth_stack)
+plot_observed_vs_fused(mostly_constant, "Mostly Constant", r_stack, r_smooth_stack)
 ```
