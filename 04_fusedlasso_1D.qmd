@@ -294,6 +294,13 @@ cat("Pixels with a decreasing trend:", length(tending_decreasing), "\n")
 cat("Pixels that are mostly constant:", length(mostly_constant), "\n")
 ```
 
+```{r}
+set.seed(2485)
+plot(as.numeric(r_stack[sample(tending_increasing, 1)]), type = "l")
+plot(as.numeric(r_stack[sample(tending_decreasing, 1)]), type = "l")
+plot(as.numeric(r_stack[sample(mostly_constant, 1)]), type = "l")
+```
+
 ### BIC Path Selection
 
 - **Data Fidelity (**$\text{RSS} / \sigma^2$) \[Orange Dashed Line\]: This curve tracks the model's loss relative to the raw observed data (the Residual Sum of Squares scaled by the noise variance). As $\log(\lambda)$ increases, regularization tightens and forces the model to become flatter and smoother. Consequently, this line **rises**, showing a decrease in pure data fitting.
