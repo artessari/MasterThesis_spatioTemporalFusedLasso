@@ -28,6 +28,7 @@ library(geodata)
 library(tidyterra)
 library(tidyverse)
 library(progress)
+library(patchwork)
 
 # Folders
 data_dir <- file.path(getwd(), "data")
@@ -580,57 +581,123 @@ r_n_changes <- terra::app(r_change_binary, sum, na.rm = TRUE)
 ## 6. Plot change maps
 
 ```{r}
-# Maximum absolute change for symmetric color scaling
-max_abs <- max(abs(terra::values(r_changes_stack)), na.rm = TRUE)
+# City-wide change intensity per quarter transition
+city_change_ts <- terra::global(abs(r_changes_stack), fun = "sum", na.rm = TRUE)
+city_change_ts$transition <- names(r_changes_stack)
+city_change_ts$t_index    <- seq_len(nrow(city_change_ts))
 
-# Continuous change maps (quarter transitions)
-par(mfrow = c(1, 3), mar = c(1.5, 1.5, 1.5, 1), oma = c(0, 0, 3, 0))
+# Identify top 3 peaks (largest city-wide shocks) to highlight
+top_peaks <- city_change_ts[order(-city_change_ts$sum), ][1:3, ]
 
-for (t in seq_len(T_layers - 1)) {
-  plot(r_changes_stack[[t]],
-       main  = names(r_changes_stack)[t],
-       col   = hcl.colors(100, "RdBu"),
-       range = c(-max_abs, max_abs),
-       cex.axis = 0.7)
-}
+p_change_timeline <- ggplot(city_change_ts, aes(x = t_index, y = sum)) +
+  geom_line(color = "steelblue", linewidth = 0.6) +
+  geom_point(size = 1.2, color = "steelblue") +
+  geom_point(data = top_peaks, aes(x = t_index, y = sum), color = "firebrick", size = 2.5) +
+  geom_text(
+    data = top_peaks,
+    aes(label = transition),
+    vjust = -1, size = 3, color = "firebrick", fontface = "bold"
+  ) +
+  scale_x_continuous(
+    breaks = seq(1, nrow(city_change_ts), by = 4),
+    labels = city_change_ts$transition[seq(1, nrow(city_change_ts), by = 4)]
+  ) +
+  labs(
+    title = "City-Wide Change Intensity Over Time",
+    subtitle = "Sum of |quarter-to-quarter change| across all pixels — red points mark the 3 largest shocks",
+    x = "Quarterly transition",
+    y = "Total absolute change (log-NTL)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 7),
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 9, color = "gray40", hjust = 0.5)
+  )
 
-par(mfrow = c(1, 1), mar = c(5, 4, 4, 2) + 0.1, oma = c(0, 0, 0, 0))
+p_change_timeline 
 
-# Number of changes per pixel
-plot(r_n_changes,
-     main = "Number of temporal changes per pixel (2021)",
-     col  = hcl.colors(12, "YlOrRd"))
-
-# Total change magnitude per pixel 
-r_total_change <- terra::app(abs(r_changes_stack), sum, na.rm = TRUE)
-
-plot(r_total_change,
-     main = "Total change magnitude per pixel (2021)",
-     col  = hcl.colors(100, "YlOrRd"))
+ggsave(
+  filename = file.path(plots_output_folder, "FusedLasso1D_change_timeline.png"),
+  plot = p_change_timeline,
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
 ```
 
 ```{r}
-# Maximum absolute change for symmetric scaling
+quarters <- names(r_smooth_stack)  # e.g. "2012 Q1", "2012 Q2", ...
+
+names(r_changes_stack) <- paste0(
+  quarters[1:(T_layers - 1)],
+  " -> ",
+  quarters[2:T_layers]
+)
+
+# Maximum absolute change for symmetric color scaling (kept consistent
+# across all change maps for comparability)
 max_abs <- max(abs(terra::values(r_changes_stack)), na.rm = TRUE)
 
-# Build symmetric RdBu palette
-rd_bu_palette <- hcl.colors(101, "RdBu")
+# Layer indices corresponding to the 3 peaks identified above
+peak_indices <- top_peaks$t_index
 
-# Replace center color with yellow (zero change)
-rd_bu_palette[51] <- "#FFFF00"
+# Spatial bounding box and padding (same style as the original vs smoothed plots)
+bbox    <- sf::st_bbox(r_changes_stack[[1]])
+x_range <- bbox["xmax"] - bbox["xmin"]
+y_range <- bbox["ymax"] - bbox["ymin"]
+pad_x   <- x_range * 0.02   # 2% padding
+pad_y   <- y_range * 0.02
 
-# Plot only the continuous change maps
-par(mfrow = c(1, 3), mar = c(1.5, 1.5, 1.5, 1), oma = c(0, 0, 3, 0))
+peak_maps <- lapply(peak_indices, function(t) {
+  ggplot() +
+    geom_spatraster(data = r_changes_stack[[t]]) +
+    scale_fill_gradient2(
+      name = "Change\n(log-NTL)", low = "firebrick", mid = "white", high = "forestgreen",
+      midpoint = 0, limits = c(-max_abs, max_abs), na.value = "white"
+    ) +
+    coord_sf(
+      xlim = c(bbox["xmin"] - pad_x, bbox["xmax"] + pad_x),
+      ylim = c(bbox["ymin"] - pad_y, bbox["ymax"] + pad_y),
+      expand = FALSE
+    ) +
+    scale_x_continuous(breaks = scales::pretty_breaks(n = 4)) +
+    labs(title = names(r_changes_stack)[t]) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", hjust = 0.5, size = 10),
+      axis.text = element_text(size = 6),
+      legend.position = "none"
+    )
+})
 
-for (t in seq_len(T_layers - 1)) {
-  plot(r_changes_stack[[t]],
-       main  = names(r_changes_stack)[t],
-       col   = rd_bu_palette,
-       range = c(-max_abs, max_abs),
-       cex.axis = 0.7)
-}
+shared_legend <- cowplot::get_legend(
+  peak_maps[[1]] +
+    theme(legend.position = "bottom",
+          legend.title = element_text(vjust = 1)) +
+    guides(fill = guide_colorbar(barwidth = 15, barheight = 0.6))
+)
 
-par(mfrow = c(1, 1), mar = c(5, 4, 4, 2) + 0.1, oma = c(0, 0, 0, 0))
+combined <- wrap_plots(peak_maps, nrow = 1)
+
+top3_shocks_plot <- combined / shared_legend +
+  plot_layout(heights = c(10, 1)) +
+  plot_annotation(
+    title = "Spatial Distribution of the 3 Largest City-Wide Shocks",
+    theme = theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 13))
+  )
+
+top3_shocks_plot
+
+ggsave(
+  filename = file.path(plots_output_folder, "FusedLasso1D_top3_shocks.png"),
+  plot = top3_shocks_plot,
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
 ```
 
 ## Pixel-Level Temporal Trajectories
