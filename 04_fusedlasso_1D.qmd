@@ -296,67 +296,119 @@ cat("Pixels that are mostly constant:", length(mostly_constant), "\n")
 
 ### BIC Path Selection
 
+- **Data Fidelity (**$\text{RSS} / \sigma^2$) \[Orange Dashed Line\]: This curve tracks the model's loss relative to the raw observed data (the Residual Sum of Squares scaled by the noise variance). As $\log(\lambda)$ increases, regularization tightens and forces the model to become flatter and smoother. Consequently, this line **rises**, showing a decrease in pure data fitting.
+
+- **Complexity Penalty (**$df \times \log(T)$) \[Green Dashed Line\]: This monitors the statistical cost of model complexity, which is proportional to the degrees of freedom ($df$—the number of constant blocks or "steps" identified by the Fused Lasso). As $\log(\lambda)$ increases, adjacent points are forced to fuse together, causing this line to **drop** as the model becomes simpler.
+
+- **Total BIC Score \[Blue Solid Line\]:** This represents the overall Bayesian Information Criterion metric, calculated as the sum of the two previous components ($\text{Data Fidelity} + \text{Complexity Penalty}$). It serves as the ultimate objective function to balance goodness-of-fit against parsimony.
+
+- **Optimal** $\log(\lambda)$ \[Red Vertical Line\]: This marks the absolute **global minimum** of the blue BIC curve. It identifies the optimal tuning parameter $\lambda$ that successfully captures genuine structural shifts while ignoring the high-frequency temporal noise of the time series.
+
 ```{r}
-df_plot <- data.frame(
-  log_lambda = log(fit_i$lambda),
-  rss_scaled = rss_vec / sig2_est,
-  penalty    = df_vec * log(T_layers),
-  bic        = bic_vec
-)
-
-opt_idx <- which.min(df_plot$bic)
-opt_log_lambda <- df_plot$log_lambda[opt_idx]
-opt_lambda     <- fit_i$lambda[opt_idx]
-
-lambda_label <- bquote(
-  atop(
-    "Optimal " * log(lambda) == .(round(opt_log_lambda, 3)),
-    "(" * lambda == .(round(opt_lambda, 3)) * ")"
+plot_fused_lasso_bic <- function(trend_group_vector, group_name, output_folder = NULL) {
+  
+  # Set seed for reproducibility and select a stable random pixel from the group
+  set.seed(42) 
+  chosen_pixel_idx <- sample(trend_group_vector, 1)
+  
+  # Extract the raw temporal vector for this specific pixel
+  y_i <- as.numeric(Y[chosen_pixel_idx, ])
+  
+  # Compute the 1D Fused Lasso regularization path
+  fit_i <- genlasso::trendfilter(y = y_i, ord = 0)
+  
+  # Extract degrees of freedom and compute the residuals matrix
+  df_vec       <- fit_i$df
+  beta_path    <- as.matrix(fit_i$beta)
+  residuals_mat <- sweep(beta_path, 1, y_i, "-")
+  rss_vec       <- colSums(residuals_mat^2)
+  
+  # Estimate variance using the robust von Neumann lag-1 difference
+  sig2_est <- mean(diff(y_i)^2) / 2
+  if (sig2_est <= 0) sig2_est <- 1e-6
+  
+  # Calculate the Bayesian Information Criterion (BIC) path vector
+  bic_vec <- (rss_vec / sig2_est) + (df_vec * log(T_layers))
+  
+  # Assemble the metrics dataframe for the plot
+  df_plot <- data.frame(
+    log_lambda = log(fit_i$lambda),
+    rss_scaled = rss_vec / sig2_est,
+    penalty    = df_vec * log(T_layers),
+    bic        = bic_vec
   )
-)
-
-ggplot(df_plot, aes(x = log_lambda)) +
-  geom_line(aes(y = rss_scaled, color = "Data Fidelity (RSS / sigma^2)"), linewidth = 0.5, linetype = "longdash") +
-  geom_line(aes(y = penalty, color = "Complexity Penalty (df * log(T))"), linewidth = 0.5, linetype = "longdash") +
-  geom_line(aes(y = bic, color = "Total BIC Score"), linewidth = 0.5) +
-  geom_vline(xintercept = opt_log_lambda, color = "red", linetype = "dashed", linewidth = 0.5) +
-  annotate("text", 
-           x = opt_log_lambda + 0.15, 
-           y = max(df_plot$bic) * 0.9, 
-           label = list(lambda_label),
-           parse = TRUE,
-           color = "red", 
-           hjust = 0, 
-           size = 3.5) +
-  scale_color_manual(values = c(
-    "Data Fidelity (RSS / sigma^2)" = "darkorange",
-    "Complexity Penalty (df * log(T))" = "darkgreen",
-    "Total BIC Score" = "blue"
-  )) +
-  labs(
-    title = "1D Fused Lasso: BIC Path Selection",
-    subtitle = "Variance Estimated via Robust Temporal First-Difference (von Neumann Lag-1) Estimator",
-    x = expression(log(lambda)),
-    y = "Score Value",
-    color = "Metrics"
-  ) +
-  theme_minimal() +
-  theme(
-    legend.position = "bottom",
-    plot.title = element_text(face = "bold", hjust = 0.5, size = 14, margin = margin(b = 4)),
-    plot.subtitle = element_text(size = 9, color = "gray40", hjust = 0.5, margin = margin(b = 10))
+  
+  # Identify the optimal tuning parameter values
+  opt_idx <- which.min(df_plot$bic)
+  opt_log_lambda <- df_plot$log_lambda[opt_idx]
+  opt_lambda     <- fit_i$lambda[opt_idx]
+  
+  # Format the mathematical label for ggplot annotation
+  lambda_label <- bquote(
+    atop(
+      "Optimal " * log(lambda) == .(round(opt_log_lambda, 3)),
+      "(" * lambda == .(round(opt_lambda, 3)) * ")"
+    )
   )
+  
+  # Generate the final plot
+  p <- ggplot(df_plot, aes(x = log_lambda)) +
+    geom_line(aes(y = rss_scaled, color = "Data Fidelity (RSS / sigma^2)"), linewidth = 0.5, linetype = "longdash") +
+    geom_line(aes(y = penalty, color = "Complexity Penalty (df * log(T))"), linewidth = 0.5, linetype = "longdash") +
+    geom_line(aes(y = bic, color = "Total BIC Score"), linewidth = 0.5) +
+    geom_vline(xintercept = opt_log_lambda, color = "red", linetype = "dashed", linewidth = 0.5) +
+    annotate("text", 
+             x = opt_log_lambda + 0.15, 
+             y = max(df_plot$bic) * 0.9, 
+             label = list(lambda_label),
+             parse = TRUE,
+             color = "red", 
+             hjust = 0, 
+             size = 3.5) +
+    scale_color_manual(values = c(
+      "Data Fidelity (RSS / sigma^2)" = "darkorange",
+      "Complexity Penalty (df * log(T))" = "darkgreen",
+      "Total BIC Score" = "blue"
+    )) +
+    labs(
+      title = "1D Fused Lasso: BIC Path Selection",
+      subtitle = "Variance Estimated via Robust Temporal First-Difference (von Neumann Lag-1) Estimator",
+      caption = paste0("Note: Calculated for reproducible random Pixel #", chosen_pixel_idx, " from the ", group_name, " dynamic group."),
+      x = expression(log(lambda)),
+      y = "Score Value",
+      color = "Metrics"
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      plot.title = element_text(face = "bold", hjust = 0.5, size = 14, margin = margin(b = 4)),
+      plot.subtitle = element_text(size = 9, color = "gray40", hjust = 0.5, margin = margin(b = 10)),
+      plot.caption = element_text(size = 8, color = "gray50", face = "italic", hjust = 0, margin = margin(t = 10))
+    )
+  
+  # Optional step to save the file automatically if a directory path is supplied
+  if (!is.null(output_folder)) {
+    safe_group_name <- gsub(" ", "_", group_name)
+    file_name <- paste0("FusedLasso1D_BIC_path_selection_", safe_group_name, ".png")
+    
+    ggsave(
+      filename = file.path(output_folder, file_name),
+      plot = p, 
+      width = 12,
+      height = 6,
+      dpi = 300,
+      bg = "white"
+    )
+  }
+  
+  return(p)
+}
 ```
 
 ```{r}
-ggsave(
-  filename = file.path(plots_output_folder, "FusedLasso1D_BIC_path_selection.png"),
-  plot = last_plot(), 
-  width = 12,
-  height = 6,
-  dpi = 300,
-  bg = "white"
-)
+plot_fused_lasso_bic(tending_increasing, "increasing", plots_output_folder)
+plot_fused_lasso_bic(tending_decreasing, "decreasing", plots_output_folder)
+plot_fused_lasso_bic(mostly_constant, "mostly constant", plots_output_folder)
 ```
 
 ## 3. Reconstruct smoothed raster stack
