@@ -651,11 +651,24 @@ pad_x   <- x_range * 0.02   # 2% padding
 pad_y   <- y_range * 0.02
 
 peak_maps <- lapply(peak_indices, function(t) {
+  
+  r_df <- as.data.frame(r_changes_stack[[t]], xy = TRUE)
+  names(r_df)[3] <- "value"
+  zero_pixels <- dplyr::filter(r_df, value == 0)
+  
   ggplot() +
     geom_spatraster(data = r_changes_stack[[t]]) +
     scale_fill_gradient2(
       name = "Change\n(log-NTL)", low = "firebrick", mid = "white", high = "forestgreen",
       midpoint = 0, limits = c(-max_abs, max_abs), na.value = "white"
+    ) +
+    geom_point(
+      data = zero_pixels,
+      aes(x = x, y = y),
+      pch = "x",
+      size = 1.5,
+      stroke = 0.6,
+      color = "black"
     ) +
     coord_sf(
       xlim = c(bbox["xmin"] - pad_x, bbox["xmax"] + pad_x),
@@ -667,7 +680,8 @@ peak_maps <- lapply(peak_indices, function(t) {
     theme_minimal() +
     theme(
       plot.title = element_text(face = "bold", hjust = 0.5, size = 10),
-      axis.text = element_text(size = 6),
+      axis.text  = element_text(size = 6),
+      axis.title = element_blank(),
       legend.position = "none"
     )
 })
@@ -685,7 +699,11 @@ top3_shocks_plot <- combined / shared_legend +
   plot_layout(heights = c(10, 1)) +
   plot_annotation(
     title = "Spatial Distribution of the 3 Largest City-Wide Shocks",
-    theme = theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 13))
+    caption = "'x' marks pixels with exactly zero change between quarters",
+    theme = theme(
+      plot.title   = element_text(face = "bold", hjust = 0.5, size = 13),
+      plot.caption = element_text(hjust = 0.5, size = 9, color = "gray40")
+    )
   )
 
 top3_shocks_plot
