@@ -27,6 +27,7 @@ library(genlasso)
 library(geodata)
 library(tidyterra)
 library(tidyverse)
+library(progress)
 
 # Folders
 data_dir <- file.path(getwd(), "data")
@@ -59,11 +60,11 @@ $$\hat{\beta} = \arg\min_{\beta} \left\{ \frac{1}{2} \sum_{t=1}^{T} (y_t - \beta
 
 The objective criteria are defined by two competing dynamics:
 
--   **Data Fidelity Term** ($\frac{1}{2} \sum_{t=1}^{T} (y_t - \beta_t)^2$): Measures the squared Euclidean distance between the observed log-transformed quarterly radiance ($y_t$) and the estimated structural trajectory ($\beta_t$) at each time step $t$. This component anchors the model to the temporal reality of each pixel, preventing the regularization path from deviating too far from the empirical satellite observations recorded across the quarters.
+- **Data Fidelity Term** ($\frac{1}{2} \sum_{t=1}^{T} (y_t - \beta_t)^2$): Measures the squared Euclidean distance between the observed log-transformed quarterly radiance ($y_t$) and the estimated structural trajectory ($\beta_t$) at each time step $t$. This component anchors the model to the temporal reality of each pixel, preventing the regularization path from deviating too far from the empirical satellite observations recorded across the quarters.
 
--   **Temporal Sparsity Penalty:** $\sum_{t=1}^{T-1} |\beta_{t+1} - \beta_t|$, an $L_1$ penalty applied to successive quarterly variations. It forces sequential quarters to share identical values ($\beta_{t+1} = \beta_t$) unless a sharp, structurally significant change in light emissions occurs.
+- **Temporal Sparsity Penalty:** $\sum_{t=1}^{T-1} |\beta_{t+1} - \beta_t|$, an $L_1$ penalty applied to successive quarterly variations. It forces sequential quarters to share identical values ($\beta_{t+1} = \beta_t$) unless a sharp, structurally significant change in light emissions occurs.
 
--   **Tuning Parameter** ($\lambda \ge 0$): Controls the structural trade-off between tracking every quarterly fluctuation ($\lambda = 0$) and forcing global temporal homogeneity ($\lambda \to \infty$).
+- **Tuning Parameter** ($\lambda \ge 0$): Controls the structural trade-off between tracking every quarterly fluctuation ($\lambda = 0$) and forcing global temporal homogeneity ($\lambda \to \infty$).
 
 ### Structural Matrix Operators ($D$ Matrix)
 
@@ -73,21 +74,17 @@ $$D = \begin{bmatrix}  -1 &  1 &  0 &  0 & \cdots &  0 &  0 \\   0 & -1 &  1 &  
 
 Multiplying this structural topology against the 56-dimensional parameter vector $\beta \in \mathbb{R}^{56}$ yields the complete vector of adjacent differences:
 
-$$
-D\beta = \begin{bmatrix}  \beta_{\text{Q2}} - \beta_{\text{Q1}} \\  \beta_{\text{Q3}} - \beta_{\text{Q2}} \\  \beta_{\text{Q4}} - \beta_{\text{Q3}} \\  \vdots \\  \beta_{\text{Q56}} - \beta_{\text{Q55}}  \end{bmatrix}
-$$
+$$D\beta = \begin{bmatrix}  \beta_{\text{Q2}} - \beta_{\text{Q1}} \\  \beta_{\text{Q3}} - \beta_{\text{Q2}} \\  \beta_{\text{Q4}} - \beta_{\text{Q3}} \\  \vdots \\  \beta_{\text{Q56}} - \beta_{\text{Q55}}  \end{bmatrix}$$
 
 Applying the $L_1$ norm to this product yields the sum of all absolute quarterly changes across the active penalization path:
 
-$$
-\Vert{}D\beta\Vert{}_1 = \sum_{t=1}^{55} \vert{}\beta_{t+1} - \beta_t\vert{} = \vert{}\beta_{\text{Q2}} - \beta_{\text{Q1}}\vert{} + \vert{}\beta_{\text{Q3}} - \beta_{\text{Q2}}\vert{} + \dots + \vert{}\beta_{\text{Q56}} - \beta_{\text{Q55}}\vert{}
-$$
+$$\Vert{}D\beta\Vert{}_1 = \sum_{t=1}^{55} \vert{}\beta_{t+1} - \beta_t\vert{} = \vert{}\beta_{\text{Q2}} - \beta_{\text{Q1}}\vert{} + \vert{}\beta_{\text{Q3}} - \beta_{\text{Q2}}\vert{} + \dots + \vert{}\beta_{\text{Q56}} - \beta_{\text{Q55}}\vert{}$$
 
 ### Methodological Implications of the Quarter-Based Setup
 
--   **Temporal Anisotropy (Sharp Shocks):** Unlike moving averages or spline smoothers that smooth out temporal transitions over time, the 1D Fused Lasso isolates abrupt shocks or sudden structural drops/jumps in economic activity between successive quarters. It preserves these sharp changes by maintaining a perfect piecewise constant trajectory (step function) rather than artificial, continuous transitions.
+- **Temporal Anisotropy (Sharp Shocks):** Unlike moving averages or spline smoothers that smooth out temporal transitions over time, the 1D Fused Lasso isolates abrupt shocks or sudden structural drops/jumps in economic activity between successive quarters. It preserves these sharp changes by maintaining a perfect piecewise constant trajectory (step function) rather than artificial, continuous transitions.
 
--   **Pixel-Wise Independence:** The model evaluates each geographical coordinate cell on its own isolated timeline. This prevents spatial autocorrelation artifacts, allowing the discovery of highly localized temporal trends (such as a single neighborhood undergoing rapid infrastructure expansion in a specific quarter) without leaking signal or smoothing trends into adjacent spatial pixels.
+- **Pixel-Wise Independence:** The model evaluates each geographical coordinate cell on its own isolated timeline. This prevents spatial autocorrelation artifacts, allowing the discovery of highly localized temporal trends (such as a single neighborhood undergoing rapid infrastructure expansion in a specific quarter) without leaking signal or smoothing trends into adjacent spatial pixels.
 
 ## 1. Load and prep all quarters
 
@@ -138,57 +135,61 @@ For each $\lambda$, the solver returns the estimated parameter vector $\hat{\bet
 
 Before evaluating the models along the regularization path, a stable baseline noise scale parameter is estimated directly from the raw data. This estimate is computed independently for each pixel's history using a temporal first-difference von Neumann estimator (Lag-1):
 
-$$
-\hat{\sigma}^2 = \frac{1}{2(T-1)} \sum_{t=1}^{T-1} (y_{t+1} - y_t)^2
-$$
+$$\hat{\sigma}^2 = \frac{1}{2(T-1)} \sum_{t=1}^{T-1} (y_{t+1} - y_t)^2$$
 
--   **Why at Lag-1?** Unlike spatial modeling (where atmospheric light diffusion and optical sensor blurring create artificial dependencies between adjacent pixels) the temporal domain is free from physical sensor diffusion across quarters. Taking first differences between successive quarters effectively neutralizes the underlying long-term structural trends, successfully isolating the pure stochastic noise.
+- **Why at Lag-1?** Unlike spatial modeling (where atmospheric light diffusion and optical sensor blurring create artificial dependencies between adjacent pixels) the temporal domain is free from physical sensor diffusion across quarters. Taking first differences between successive quarters effectively neutralizes the underlying long-term structural trends, successfully isolating the pure stochastic noise.
 
--   **Why the** $\frac{1}{2}$ scaling factor? By definition, the variance of the difference between two independent and identically distributed random variables is the sum of their individual variances:
+- **Why the** $\frac{1}{2}$ scaling factor? By definition, the variance of the difference between two independent and identically distributed random variables is the sum of their individual variances:
 
-    $$
-    \text{Var}(A - B) = \text{Var}(A) + \text{Var}(B) = 2\sigma^2
-    $$
+  $$\text{Var}(A - B) = \text{Var}(A) + \text{Var}(B) = 2\sigma^2$$
 
-    Therefore, the coefficient $\frac{1}{2}$ corrects this mathematical duplication, yielding an unbiased estimation of the background noise.
+  Therefore, the coefficient $\frac{1}{2}$ corrects this mathematical duplication, yielding an unbiased estimation of the background noise.
 
 #### Step 3: Pathwise Evaluation of the Variance-Scaled BIC Score
 
 For each value of $\lambda$ generated by the path solver, a variance-scaled BIC-type information score is evaluated:
 
-$$
-\text{BIC}(\lambda) = \frac{\text{RSS}(\lambda)}{\hat{\sigma}^2} + \text{df}(\lambda) \log(T)
-$$
+$$\text{BIC}(\lambda) = \frac{\text{RSS}(\lambda)}{\hat{\sigma}^2} + \text{df}(\lambda) \log(T)$$
 
 Where:
 
--   $\text{RSS}(\lambda) = \sum_{t=1}^{T} (y_t - \hat{\beta}_t(\lambda))^2$ is the Residual Sum of Squares, measuring the empirical discrepancy between the observed quarterly radiance values and the smoothed structural trajectory.
+- $\text{RSS}(\lambda) = \sum_{t=1}^{T} (y_t - \hat{\beta}_t(\lambda))^2$ is the Residual Sum of Squares, measuring the empirical discrepancy between the observed quarterly radiance values and the smoothed structural trajectory.
 
--   $T$ is the total number of temporal observations ($T = 56$ quarters).
+- $T$ is the total number of temporal observations ($T = 56$ quarters).
 
 #### Step 4: Optimal Parameter Selection
 
 The optimal penalty parameter is formally defined as the step along the path that minimizes the information score:
 
-$$
-\lambda^* = \arg\min_{\lambda} \text{BIC}(\lambda)
-$$
+$$\lambda^* = \arg\min_{\lambda} \text{BIC}(\lambda)$$
 
 The piecewise constant trajectory corresponding to this minimum score is extracted and stored as the final regularized output for the current pixel. The loop then repeats this entire process for the next cell, ensuring complete spatial independence.
 
 ### Methodological Advantages
 
--   **Resolution of Path-Dependent Circularity**: Defining $\hat{\sigma}^2$ on the raw data structures prior to running the path solver ensures that the scale parameter acts as a hard statistical anchor. It remains entirely independent of $\lambda$, preventing the optimization failure where the variance estimate shifts dynamically with the model complexity.
+- **Resolution of Path-Dependent Circularity**: Defining $\hat{\sigma}^2$ on the raw data structures prior to running the path solver ensures that the scale parameter acts as a hard statistical anchor. It remains entirely independent of $\lambda$, preventing the optimization failure where the variance estimate shifts dynamically with the model complexity.
 
--   **Asymptotic Stability against** $\text{RSS} \to 0$: In traditional likelihood-based BIC formulations, the logarithmic term $T \log(\text{RSS}/T)$ becomes highly unstable when $\lambda$ approaches zero and the model closely interpolates the raw data points. Replacing this term with a variance-scaled expression $\text{RSS}(\lambda)/\hat{\sigma}^2$ ensures a stable, well-behaved U-shaped selection curve.
+- **Asymptotic Stability against** $\text{RSS} \to 0$: In traditional likelihood-based BIC formulations, the logarithmic term $T \log(\text{RSS}/T)$ becomes highly unstable when $\lambda$ approaches zero and the model closely interpolates the raw data points. Replacing this term with a variance-scaled expression $\text{RSS}(\lambda)/\hat{\sigma}^2$ ensures a stable, well-behaved U-shaped selection curve.
 
--   **Localized Adaptability**: Since the noise level and nighttime light volatility vary drastically between highly active urban cores and sparsely lit rural surroundings, calculating both $\hat{\sigma}^2$ and $\text{BIC}(\lambda)$ independently for each pixel guarantees that the selected penalty is strictly tailored to the local signal-to-noise ratio.
+- **Localized Adaptability**: Since the noise level and nighttime light volatility vary drastically between highly active urban cores and sparsely lit rural surroundings, calculating both $\hat{\sigma}^2$ and $\text{BIC}(\lambda)$ independently for each pixel guarantees that the selected penalty is strictly tailored to the local signal-to-noise ratio.
 
 ```{r}
+pb <- progress::progress_bar$new(
+  format = "  Processing [:bar] :percent | ETA: :eta | Elapsed: :elapsed | Active pixel: :current",
+  total = n_cells, 
+  clear = FALSE, 
+  width = 80
+)
+
 # Initialize the storage matrix matching original raster cells
 beta_mat <- matrix(NA, nrow = n_cells, ncol = T_layers)
+# Initialize a vector to store the optimal lambda for each pixel
+best_lambdas <- numeric(n_cells)
 
 for (i in seq_len(n_cells)) {
+  
+  # Update the progress bar at each iteration, assigning the current index to the token
+  pb$tick(tokens = list(current_file = i))
   
   # Extract the raw temporal vector for the current pixel
   y_i <- as.numeric(Y[i, ])
@@ -205,7 +206,6 @@ for (i in seq_len(n_cells)) {
   rss_vec   <- colSums(residuals^2)
   
   # Robust estimation of Error Variance via First Differences
-  # This provides a stable scale anchor across the entire solution path
   sig2_est <- mean(diff(y_i)^2) / 2
   if (sig2_est <= 0) sig2_est <- 1e-6
   
@@ -217,12 +217,81 @@ for (i in seq_len(n_cells)) {
   
   # Store the regularized coefficients inside the results matrix
   beta_mat[i, ] <- beta_path[, best_idx]
-  
-  # Progress tracker
-  if (i %% 500 == 0) cat("Pixel", i, "of", n_cells, "\n")
+  # Store the actual optimal lambda value for this pixel
+  best_lambdas[i] <- fit_i$lambda[best_idx]
 }
+```
 
-cat("Done. Pixels processed:", n_cells, "\n")
+### Long-Term Trend Classification via Adaptive Empirical Thresholds
+
+- **Linear Trend Estimation:** For each individual pixel, an ordinary least squares (OLS) linear regression is fitted over the 1D Fused Lasso smoothed time series (`beta_mat`). The temporal vector spans the $T$ quarters ($t = 1, \dots, 56$). The resulting slope coefficient represents the average rate of log-NTL change per quarter.
+
+- **Empirical Baseline Positioning:** The overall distribution of these slopes reveals a strong macroeconomic shift, with the entire distribution heavily skewed to the right. Centering the analysis around zero would lead to a severely biased classification where nearly all pixels are categorized as increasing. To adjust for this general urban expansion, the median slope is established as the central benchmark for baseline urban dynamics.
+
+- **Adaptive Stability Band:** Rather than using a rigid constraint, a robust tolerance interval is constructed symmetrically around the median using the empirical standard deviation ($0.5 \times \text{SD}$). This defines a realistic stability band relative to how Kampala is growing as a whole.
+
+- **Pixel Trajectory Classification:** Pixels are grouped into three distinct structural dynamics based on their positions relative to these adaptive boundaries:
+
+  - **Increasing Trend:** Pixels whose slopes exceed the upper boundary ($\text{slope} > \text{median} + 0.5 \times \text{SD}$), signaling areas undergoing accelerated development or rapid electrification that outpaces the city's average growth.
+
+  - **Decreasing Trend:** Pixels falling below the lower boundary ($\text{slope} < \text{median} - 0.5 \times \text{SD}$), capturing spatial cells experiencing relative decay, economic contraction, or prolonged infrastructural stagnation.
+
+  - **Mostly Constant:** Pixels contained safely within the tolerance boundaries, identifying regions that are structurally stable and developing in lockstep with the baseline growth rate of the broader metropolitan area.
+
+```{r}
+# Define a time vector from 1 to 56
+time_vec <- seq_len(T_layers)
+
+# Calculate the linear trend slope for each smoothed pixel trajectory
+# beta_mat is [n_cells x T_layers]
+slopes <- apply(beta_mat, 1, function(y) {
+  if(all(is.na(y))) return(NA)
+  lm(y ~ time_vec)$coefficients[2]
+})
+```
+
+```{r}
+# Print the summary statistics of the computed pixel slopes to verify values
+print(summary(slopes))
+
+# Calculate data-driven reference lines based on the empirical distribution
+slope_median <- median(slopes, na.rm = TRUE)
+slope_sd     <- sd(slopes, na.rm = TRUE)
+
+# Define a robust tolerance band around the median (e.g., half a standard deviation)
+lower_bound <- slope_median - (0.5 * slope_sd)
+upper_bound <- slope_median + (0.5 * slope_sd)
+
+# Visualize the empirical distribution of the slopes with updated dynamic thresholds
+ggplot(data.frame(slopes = slopes), aes(x = slopes)) +
+  geom_density(fill = "steelblue", alpha = 0.4) +
+  # Vertical line for the general urban growth center (Median)
+  geom_vline(xintercept = slope_median, color = "darkblue", linetype = "solid", linewidth = 0.7) +
+  # Vertical lines for the adaptive stability thresholds
+  geom_vline(xintercept = c(lower_bound, upper_bound), color = "red", linetype = "dashed", linewidth = 0.6) +
+  labs(
+    title = "Empirical Distribution of Pixel Slopes",
+    subtitle = "Solid line: Median Trend | Dashed lines: Adaptive Stability Thresholds",
+    x = "Slope Value (Log-NTL Change per Quarter)",
+    y = "Density"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 13),
+    plot.subtitle = element_text(size = 9, color = "gray40", hjust = 0.5)
+  )
+```
+
+```{r}
+# Classify the pixels using the data-driven thresholds
+tending_increasing <- which(slopes > upper_bound)
+tending_decreasing <- which(slopes < lower_bound)
+mostly_constant    <- which(slopes >= lower_bound & slopes <= upper_bound)
+
+# Print the dynamic classification summary to the console
+cat("Pixels with an increasing trend:", length(tending_increasing), "\n")
+cat("Pixels with a decreasing trend:", length(tending_decreasing), "\n")
+cat("Pixels that are mostly constant:", length(mostly_constant), "\n")
 ```
 
 ### BIC Path Selection
@@ -308,6 +377,115 @@ names(r_smooth_stack) <- names(r_stack)
 ```
 
 ## 4. Plot original vs smoothed
+
+```{r}
+# Define and create the model-specific subfolder within the main plots directory
+fused_lasso_plots_folder <- file.path(plots_output_folder, "FusedLasso1D")
+
+if (!dir.exists(fused_lasso_plots_folder)) {
+  dir.create(fused_lasso_plots_folder)
+}
+```
+
+```{r}
+# Select a single specific quarter for testing (e.g., t = 1 for the first quarter)
+t <- 1
+
+# Extract the specific layer name (e.g., "2012 Q1")
+layer_name <- names(r_stack)[t]
+base_name <- gsub(" ", "_", layer_name)
+
+# Load original and smoothed single layers for the selected quarter
+r_original <- r_stack[[t]]
+r_smooth   <- r_smooth_stack[[t]]
+
+# Compute matching scale limits across both layers
+v_kla_clean <- as.numeric(terra::values(r_original))
+min_val <- min(v_kla_clean, na.rm = TRUE)
+max_val <- max(v_kla_clean, na.rm = TRUE)
+
+# Set spatial bounding box and padding
+bbox <- sf::st_bbox(r_original)
+x_range <- bbox["xmax"] - bbox["xmin"]
+y_range <- bbox["ymax"] - bbox["ymin"]
+pad_x <- x_range * 0.02   # 2% padding
+pad_y <- y_range * 0.02
+
+# Shared layout style definitions using the original YlOrRd color palette
+base_style <- list(
+  ggplot2::scale_fill_distiller(
+    palette = "YlOrRd",
+    direction = 1,
+    na.value = "transparent",
+    name = "log(NTL)",
+    limits = c(min_val, max_val)
+  ),
+  coord_sf(
+    xlim = c(bbox["xmin"] - pad_x, bbox["xmax"] + pad_x),
+    ylim = c(bbox["ymin"] - pad_y, bbox["ymax"] + pad_y),
+    expand = FALSE
+  ),
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 4)),
+  theme_minimal(), 
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12), 
+    axis.text.y = element_text(angle = 90, hjust = 0.5),
+    legend.position = "right", 
+    legend.key.height = unit(2, "cm"),
+    legend.title = element_text(size = 10, face = "bold", hjust = 0.5)
+  )
+)
+
+# Parse title strings correctly from layer names ("2012 Q1")
+parts <- strsplit(layer_name, " ")[[1]]
+year    <- parts[1]  # The first element is the year
+quarter <- parts[2]  # The second element is the quarter
+city    <- "Kampala"
+
+# 1. Generate original raster plot (with administrative border)
+p1 <- ggplot() +
+  tidyterra::geom_spatraster(data = r_original) +
+  geom_sf(data = kampala_border, fill = NA, color = "blue", linewidth = 0.6) +
+  labs(title = paste0(city, " (", quarter, " ", year, ") — Original")) +
+  base_style
+
+# 2. Generate smoothed raster plot (without administrative border)
+p2 <- ggplot() +
+  tidyterra::geom_spatraster(data = r_smooth) +
+  labs(title = bquote(bold("1D Fused Lasso (Adaptive " * lambda * " via BIC)"))) +
+  base_style
+
+# Extract and detach the shared color bar legend
+shared_legend <- cowplot::get_legend(p1)
+
+p1 <- p1 + theme(legend.position = "none")
+p2 <- p2 + theme(legend.position = "none")
+
+# Assemble the combined grid layout
+plots_combined <- cowplot::plot_grid(p1, p2, ncol = 2)
+
+final_grid <- cowplot::plot_grid(
+  plots_combined, 
+  shared_legend, 
+  ncol = 2, 
+  rel_widths = c(0.90, 0.10)
+)
+
+# Define destination file path and save to disk
+plot_output_path <- file.path(fused_lasso_plots_folder, paste0("Test_FusedLasso1D_", base_name, ".png"))
+
+ggsave(
+  filename = plot_output_path,
+  plot = final_grid,
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+
+# Render the output inside the notebook
+print(final_grid)
+```
 
 ```{r}
 # Define global intensity limits based on the raster values
