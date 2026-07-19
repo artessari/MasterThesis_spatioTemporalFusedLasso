@@ -185,6 +185,8 @@ pb <- progress::progress_bar$new(
 beta_mat <- matrix(NA, nrow = n_cells, ncol = T_layers)
 # Initialize a vector to store the optimal lambda for each pixel
 best_lambdas <- numeric(n_cells)
+# Initialize a vector to store the noise variance estimate for each pixel
+sig2_est_vec <- numeric(n_cells)
 
 for (i in seq_len(n_cells)) {
   
@@ -219,76 +221,48 @@ for (i in seq_len(n_cells)) {
   beta_mat[i, ] <- beta_path[, best_idx]
   # Store the actual optimal lambda value for this pixel
   best_lambdas[i] <- fit_i$lambda[best_idx]
+  # Store the noise variance estimate for this pixel (used later for trend classification)
+  sig2_est_vec[i] <- sig2_est
 }
 ```
 
-### Long-Term Trend Classification via Adaptive Empirical Thresholds
-
-- **Linear Trend Estimation:** For each individual pixel, an ordinary least squares (OLS) linear regression is fitted over the 1D Fused Lasso smoothed time series (`beta_mat`). The temporal vector spans the $T$ quarters ($t = 1, \dots, 56$). The resulting slope coefficient represents the average rate of log-NTL change per quarter.
-
-- **Empirical Baseline Positioning:** The overall distribution of these slopes reveals a strong macroeconomic shift, with the entire distribution heavily skewed to the right. Centering the analysis around zero would lead to a severely biased classification where nearly all pixels are categorized as increasing. To adjust for this general urban expansion, the median slope is established as the central benchmark for baseline urban dynamics.
-
-- **Adaptive Stability Band:** Rather than using a rigid constraint, a robust tolerance interval is constructed symmetrically around the median using the empirical standard deviation ($0.5 \times \text{SD}$). This defines a realistic stability band relative to how Kampala is growing as a whole.
-
-- **Pixel Trajectory Classification:** Pixels are grouped into three distinct structural dynamics based on their positions relative to these adaptive boundaries:
-
-  - **Increasing Trend:** Pixels whose slopes exceed the upper boundary ($\text{slope} > \text{median} + 0.5 \times \text{SD}$), signaling areas undergoing accelerated development or rapid electrification that outpaces the city's average growth.
-
-  - **Decreasing Trend:** Pixels falling below the lower boundary ($\text{slope} < \text{median} - 0.5 \times \text{SD}$), capturing spatial cells experiencing relative decay, economic contraction, or prolonged infrastructural stagnation.
-
-  - **Mostly Constant:** Pixels contained safely within the tolerance boundaries, identifying regions that are structurally stable and developing in lockstep with the baseline growth rate of the broader metropolitan area.
+### Long-Term Trend Classification via Per-Pixel Noise Tolerance
 
 ```{r}
-# Define a time vector from 1 to 56
-time_vec <- seq_len(T_layers)
+net_change <- beta_mat[, T_layers] - beta_mat[, 1]
 
-# Calculate the linear trend slope for each smoothed pixel trajectory
-# beta_mat is [n_cells x T_layers]
-slopes <- apply(beta_mat, 1, function(y) {
-  if(all(is.na(y))) return(NA)
-  lm(y ~ time_vec)$coefficients[2]
-})
+tending_increasing <- which(net_change > 0)
+tending_decreasing <- which(net_change < 0)
+mostly_constant    <- which(net_change == 0)
+
+cat("Increasing:", length(tending_increasing), "\n")
+cat("Decreasing:", length(tending_decreasing), "\n")
+cat("Constant:", length(mostly_constant), "\n")
 ```
 
 ```{r}
-# Print the summary statistics of the computed pixel slopes to verify values
-print(summary(slopes))
-
-# Calculate data-driven reference lines based on the empirical distribution
-slope_median <- median(slopes, na.rm = TRUE)
-slope_sd     <- sd(slopes, na.rm = TRUE)
-
-# Define a robust tolerance band around the median (e.g., half a standard deviation)
-lower_bound <- slope_median - (0.5 * slope_sd)
-upper_bound <- slope_median + (0.5 * slope_sd)
-
-# Visualize the empirical distribution of the slopes with updated dynamic thresholds
-ggplot(data.frame(slopes = slopes), aes(x = slopes)) +
-  geom_density(fill = "steelblue", alpha = 0.4) +
-  # Vertical line for the general urban growth center (Median)
-  geom_vline(xintercept = slope_median, color = "darkblue", linetype = "solid", linewidth = 0.7) +
-  # Vertical lines for the adaptive stability thresholds
-  geom_vline(xintercept = c(lower_bound, upper_bound), color = "red", linetype = "dashed", linewidth = 0.6) +
-  labs(
-    title = "Empirical Distribution of Pixel Slopes",
-    subtitle = "Solid line: Median Trend | Dashed lines: Adaptive Stability Thresholds",
-    x = "Slope Value (Log-NTL Change per Quarter)",
-    y = "Density"
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(face = "bold", hjust = 0.5, size = 13),
-    plot.subtitle = element_text(size = 9, color = "gray40", hjust = 0.5)
-  )
+set.seed(2485)
+plot(as.numeric(r_stack[sample(tending_increasing, 1)]), type = "l")
+plot(as.numeric(r_stack[sample(tending_decreasing, 1)]), type = "l")
 ```
 
 ```{r}
-# Classify the pixels using the data-driven thresholds
-tending_increasing <- which(slopes > upper_bound)
-tending_decreasing <- which(slopes < lower_bound)
-mostly_constant    <- which(slopes >= lower_bound & slopes <= upper_bound)
+# Net change: difference between final and initial value of the smoothed trajectory
+net_change <- beta_mat[, T_layers] - beta_mat[, 1]
 
-# Print the dynamic classification summary to the console
+# Noise scale for each pixel (already estimated during the fused lasso fit)
+noise_sd <- sqrt(sig2_est_vec)
+
+# Number of noise standard deviations tolerated before an increase is
+# considered structurally significant (rather than residual noise).
+# Decreasing pixels are kept as-is (no tolerance), since they are already
+# a small minority and should not be further reduced.
+k <- 0.5
+
+tending_increasing <- which(net_change >  k * noise_sd)
+tending_decreasing <- which(net_change < 0)
+mostly_constant    <- which(net_change >= 0 & net_change <= k * noise_sd)
+
 cat("Pixels with an increasing trend:", length(tending_increasing), "\n")
 cat("Pixels with a decreasing trend:", length(tending_decreasing), "\n")
 cat("Pixels that are mostly constant:", length(mostly_constant), "\n")
