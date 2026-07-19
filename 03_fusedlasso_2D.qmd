@@ -139,7 +139,7 @@ raster_summary
 ## Quarterly Nighttime Lights Grid Map
 
 ```{r}
-#| fig-height: 10
+#| fig-height: 11
 
 # Create a single SpatRaster with one layer per period
 kampala_stack <- rast(kampala_rasters)
@@ -198,7 +198,7 @@ ggsave(
   filename = file.path(plots_output_folder, "Kampala_Quarterly_NTL_GridMap.png"),
   plot = last_plot(), 
   width = 10,
-  height = 10,
+  height = 11,
   dpi = 300,
   bg = "white"
 )
@@ -218,11 +218,11 @@ $$ \hat{\beta} = \arg\min_{\beta} \left\{ \frac{1}{2} \|y - \beta\|_2^2 + \lambd
 
 The objective function consists of two structural components:
 
--   **Data Fidelity Term (**$\frac{1}{2} \|y - \beta\|_2^2$): Measures the squared Euclidean distance between the observed log-transformed pixel intensities ($y$) and the estimated smooth signals ($\beta$). This component prevents the model from over-smoothing and deviating too far from the actual satellite observations.
+- **Data Fidelity Term (**$\frac{1}{2} \|y - \beta\|_2^2$): Measures the squared Euclidean distance between the observed log-transformed pixel intensities ($y$) and the estimated smooth signals ($\beta$). This component prevents the model from over-smoothing and deviating too far from the actual satellite observations.
 
--   **Sparsity Penalty (**$\|D\beta\|_1$): Applies an $L_1$ penalty (absolute sum) to the differences between spatially adjacent pixels.
+- **Sparsity Penalty (**$\|D\beta\|_1$): Applies an $L_1$ penalty (absolute sum) to the differences between spatially adjacent pixels.
 
--   **Tuning Parameter (**$\lambda \ge 0$): Controls the trade-off between keeping the original data structure ($\lambda = 0$) and forcing spatial homogeneity ($\lambda \to \infty$).
+- **Tuning Parameter (**$\lambda \ge 0$): Controls the trade-off between keeping the original data structure ($\lambda = 0$) and forcing spatial homogeneity ($\lambda \to \infty$).
 
 ### Matrix Structure and Dimension Mapping
 
@@ -236,11 +236,11 @@ $$ \|D\beta\|_1 = \sum_{\text{Horizontal Pairs}} |\beta_{\text{row}, \text{col}}
 
 **Parameter Alignment (Row-Major vs. Column-Major)**
 
--   **Data Input:** `terra::values()` extracts raster cells in **Row-Major** order (row by row, left to right).
+- **Data Input:** `terra::values()` extracts raster cells in **Row-Major** order (row by row, left to right).
 
--   **Solver Assumption:** `genlasso::fusedlasso2d()` natively expects data in **Column-Major** order (column by column).
+- **Solver Assumption:** `genlasso::fusedlasso2d()` natively expects data in **Column-Major** order (column by column).
 
--   **Correction Alignment:** Setting `dim1 = ncol_k` and `dim2 = nrow_k` correctly aligns the geometric boundaries of the 2D grid. This alignment ensures that horizontal and vertical neighbors in the mathematical graph match the true geographical neighbors in Kampala.
+- **Correction Alignment:** Setting `dim1 = ncol_k` and `dim2 = nrow_k` correctly aligns the geometric boundaries of the 2D grid. This alignment ensures that horizontal and vertical neighbors in the mathematical graph match the true geographical neighbors in Kampala.
 
 ## 1. Extract matrix from raster
 
@@ -275,17 +275,17 @@ fit
 
 The interpretation of the `genlasso` output path relies on the following core behaviors:
 
--   **Spatial Clustering (Piecewise Constant Patches):** The $L_1$ norm on the differences forces many adjacent pixel differences to become *exactly zero* ($\beta_i - \beta_j = 0 \implies \beta_i = \beta_j$). This process segments the Kampala metropolitan area into homogeneous economic or urban development blocks ("patches").
+- **Spatial Clustering (Piecewise Constant Patches):** The $L_1$ norm on the differences forces many adjacent pixel differences to become *exactly zero* ($\beta_i - \beta_j = 0 \implies \beta_i = \beta_j$). This process segments the Kampala metropolitan area into homogeneous economic or urban development blocks ("patches").
 
--   **Edge and Boundary Detection:** Pairs of adjacent pixels where $\beta_i - \beta_j \neq 0$ represent sharp spatial boundaries. In the context of nighttime lights, these boundaries isolate sudden transitions, such as moving from high-density commercial centers to unlit informal settlements or rural fringes.
+- **Edge and Boundary Detection:** Pairs of adjacent pixels where $\beta_i - \beta_j \neq 0$ represent sharp spatial boundaries. In the context of nighttime lights, these boundaries isolate sudden transitions, such as moving from high-density commercial centers to unlit informal settlements or rural fringes.
 
--   **Solution Path Behavior (**$\lambda$ Mechanics):
+- **Solution Path Behavior (**$\lambda$ Mechanics):
 
-    -   **Low** $\lambda$: High data fidelity. This setting retains localized noise, specific structural variations, and background satellite emissions.
+  - **Low** $\lambda$: High data fidelity. This setting retains localized noise, specific structural variations, and background satellite emissions.
 
-    -   **Intermediate** $\lambda$: Optimal denoising. This configuration removes micro-level noise while preserving macro-regional clusters of economic activity and infrastructure development.
+  - **Intermediate** $\lambda$: Optimal denoising. This configuration removes micro-level noise while preserving macro-regional clusters of economic activity and infrastructure development.
 
-    -   **High** $\lambda$: Global smoothing. This parameter choice fuses all pixels together until Kampala collapses into a single uniform average light intensity value.
+  - **High** $\lambda$: Global smoothing. This parameter choice fuses all pixels together until Kampala collapses into a single uniform average light intensity value.
 
 ## 3. Choose lambda
 
@@ -301,19 +301,19 @@ $$\text{CV}_{\text{MSE}}(\lambda_j) = \frac{1}{K} \sum_{k=1}^{K} \text{MSE}_k(\l
 
 Where:
 
--   $T_k$: The set of pixel indices assigned to the $k$-th test fold.
+- $T_k$: The set of pixel indices assigned to the $k$-th test fold.
 
--   $|T_k|$: The total number of evaluation pixels within the active test fold.
+- $|T_k|$: The total number of evaluation pixels within the active test fold.
 
--   $y_i$: The baseline observed log-transformed light intensity of pixel $i$.
+- $y_i$: The baseline observed log-transformed light intensity of pixel $i$.
 
 **Methodological Limitations**
 
--   **Graph Disruption:** Random spatial sampling breaks the mathematical continuity of the 2D spatial adjacency matrix $D$.
+- **Graph Disruption:** Random spatial sampling breaks the mathematical continuity of the 2D spatial adjacency matrix $D$.
 
--   **Imputation Proxy Bias:** Forcing $y_i = 0$ for test pixels introduces artificial sharp edges into the training phase, forcing the solver to smooth out artificial artificial contrasts.
+- **Imputation Proxy Bias:** Forcing $y_i = 0$ for test pixels introduces artificial sharp edges into the training phase, forcing the solver to smooth out artificial artificial contrasts.
 
--   **Interpretation:** The resulting curve provides a numerical profile of the cross-validation error across the tuning parameter grid. The selected $\lambda_{\mathit{opt\_cv}}$ marks the exact mathematical minimum where the model achieves the best balance between bias and variance. However, because random spatial sampling alters the underlying graph structure during the validation steps, this data-driven choice should always be verified visually to ensure that the resulting segments retain the true structural coherence of Kampala's urban boundaries.
+- **Interpretation:** The resulting curve provides a numerical profile of the cross-validation error across the tuning parameter grid. The selected $\lambda_{\mathit{opt\_cv}}$ marks the exact mathematical minimum where the model achieves the best balance between bias and variance. However, because random spatial sampling alters the underlying graph structure during the validation steps, this data-driven choice should always be verified visually to ensure that the resulting segments retain the true structural coherence of Kampala's urban boundaries.
 
 ``` r
 set.seed(123)
@@ -414,25 +414,25 @@ $$\Rightarrow \quad \lambda_{\mathit{opt\_cv}} = \arg\min_{\lambda_j} \text{CV}_
 
 Where:
 
--   $T_k$: Set of pixel indices assigned to the $k$-th spatial fold (horizontal block).
+- $T_k$: Set of pixel indices assigned to the $k$-th spatial fold (horizontal block).
 
--   $|T_k|$: Number of pixels in the validation block.
+- $|T_k|$: Number of pixels in the validation block.
 
--   $y_i$: Observed log-transformed nighttime light intensity at pixel $i$.
+- $y_i$: Observed log-transformed nighttime light intensity at pixel $i$.
 
--   $\bar{y}_{-k}$: Mean intensity computed exclusively on the training folds (excluding $T_k$).
+- $\bar{y}_{-k}$: Mean intensity computed exclusively on the training folds (excluding $T_k$).
 
--   $K_j$: The number of folds that successfully converged for the penalty level $\lambda_j$.
+- $K_j$: The number of folds that successfully converged for the penalty level $\lambda_j$.
 
 **Methodological Limitations**
 
--   **Spatial dependence violation:** Although spatial blocks (horizontal bands) preserve spatial locality better than purely random sampling, residual spatial autocorrelation along the vertical and horizontal boundaries may still leak information between training and validation regions.
+- **Spatial dependence violation:** Although spatial blocks (horizontal bands) preserve spatial locality better than purely random sampling, residual spatial autocorrelation along the vertical and horizontal boundaries may still leak information between training and validation regions.
 
--   **Imputation approximation:** Held-out pixels are not truly removed from the optimization graph. Replacing them with the training mean $\bar{y}_{-k}$ is a pragmatic workaround required by the `fusedlasso2d` implementation, but it introduces a mild smoothing bias toward the global mean.
+- **Imputation approximation:** Held-out pixels are not truly removed from the optimization graph. Replacing them with the training mean $\bar{y}_{-k}$ is a pragmatic workaround required by the `fusedlasso2d` implementation, but it introduces a mild smoothing bias toward the global mean.
 
--   **Numerical convergence filtering:** The grid of evaluated hyperparameters must be truncated to $\Lambda_{\text{safe}}$. This heuristic ensures that $\lambda_{\mathit{opt\_cv}}$ is selected only from numerical regions where the fused lasso algorithm converges successfully across all folds, ignoring unstable paths.
+- **Numerical convergence filtering:** The grid of evaluated hyperparameters must be truncated to $\Lambda_{\text{safe}}$. This heuristic ensures that $\lambda_{\mathit{opt\_cv}}$ is selected only from numerical regions where the fused lasso algorithm converges successfully across all folds, ignoring unstable paths.
 
--   **Boundary sensitivity:** The fused lasso objective function is highly sensitive to artificial boundaries introduced by the block partitioning, which may slightly bias the selected $\lambda$ toward smoother solutions.
+- **Boundary sensitivity:** The fused lasso objective function is highly sensitive to artificial boundaries introduced by the block partitioning, which may slightly bias the selected $\lambda$ toward smoother solutions.
 
 ``` r
 set.seed(123)
@@ -538,17 +538,17 @@ $$\text{BIC}(\lambda) = n \log\left(\frac{\text{RSS}(\lambda)}{n}\right) + \text
 
 Where the specific metric functions expand as:
 
--   **Residual Sum of Squares** ($\text{RSS}(\lambda)$): $\sum_{i=1}^{n} (y_i - \hat{\beta}_i(\lambda))^2$, evaluating the empirical error variance.
+- **Residual Sum of Squares** ($\text{RSS}(\lambda)$): $\sum_{i=1}^{n} (y_i - \hat{\beta}_i(\lambda))^2$, evaluating the empirical error variance.
 
--   **Degrees of Freedom** ($\text{df}(\lambda)$): In a 2D Fused Lasso setup, the degrees of freedom equal the exact number of separated, constant spatial blocks (connected components) generated on the Kampala grid at a given penalty level $\lambda$.
+- **Degrees of Freedom** ($\text{df}(\lambda)$): In a 2D Fused Lasso setup, the degrees of freedom equal the exact number of separated, constant spatial blocks (connected components) generated on the Kampala grid at a given penalty level $\lambda$.
 
 **Why BIC is Superior to K-fold CV for Spatial Rasters**
 
--   **Preservation of Topology:** BIC operates globally on the original, uncompromised raster grid. It eliminates the need to randomly mask or zero-out pixels, avoiding the creation of artificial spatial boundaries.
+- **Preservation of Topology:** BIC operates globally on the original, uncompromised raster grid. It eliminates the need to randomly mask or zero-out pixels, avoiding the creation of artificial spatial boundaries.
 
--   **Exact Graph Degrees of Freedom:** The `genlasso` solver computes the analytical degrees of freedom at every singular optimization step. BIC directly leverages this topological information, penalizing models that create too many fragmented urban fragments.
+- **Exact Graph Degrees of Freedom:** The `genlasso` solver computes the analytical degrees of freedom at every singular optimization step. BIC directly leverages this topological information, penalizing models that create too many fragmented urban fragments.
 
--   **Computational Efficiency:** Unlike Cross-Validation, which requires re-running the heavy 2D solver $K$ separate times, BIC is evaluated post-hoc on the full solution path object in a fraction of a second.
+- **Computational Efficiency:** Unlike Cross-Validation, which requires re-running the heavy 2D solver $K$ separate times, BIC is evaluated post-hoc on the full solution path object in a fraction of a second.
 
 ```{r}
 # 1. Data Preparation
@@ -601,23 +601,23 @@ $$\text{BIC}(\lambda) = \frac{\text{RSS}(\lambda)}{\hat{\sigma}^2_{\text{Neumann
 
 Where the specific metric functions expand as:
 
--   **Residual Sum of Squares** ($\text{RSS}(\lambda)$): $\sum_{i=1}^{n} (y_i - \hat{\beta}_i(\lambda))^2$, evaluating the empirical error variance at penalty level $\lambda$.
+- **Residual Sum of Squares** ($\text{RSS}(\lambda)$): $\sum_{i=1}^{n} (y_i - \hat{\beta}_i(\lambda))^2$, evaluating the empirical error variance at penalty level $\lambda$.
 
--   **Data-Driven Error Variance Estimate** ($\hat{\sigma}^2_{\text{Neumann}}(k^*)$): A model-independent baseline noise scale parameter, extracted from the 2D spatial grid topology via a localized Lag-K first-difference estimator.
+- **Data-Driven Error Variance Estimate** ($\hat{\sigma}^2_{\text{Neumann}}(k^*)$): A model-independent baseline noise scale parameter, extracted from the 2D spatial grid topology via a localized Lag-K first-difference estimator.
 
--   **Degrees of Freedom** ($\text{df}(\lambda)$): In a 2D Fused Lasso setup, the degrees of freedom are given by the number of connected constant spatial blocks (a standard approximation of the effective degrees of freedom in fused lasso models), corresponding to the number of separated, constant spatial regions (connected components) generated on the grid at a given penalty level $\lambda$.
+- **Degrees of Freedom** ($\text{df}(\lambda)$): In a 2D Fused Lasso setup, the degrees of freedom are given by the number of connected constant spatial blocks (a standard approximation of the effective degrees of freedom in fused lasso models), corresponding to the number of separated, constant spatial regions (connected components) generated on the grid at a given penalty level $\lambda$.
 
 **Why this Formulation is Superior for Spatial Rasters**
 
--   **Resolution of Path-Dependent Circularity**: By defining $\hat{\sigma}^2$ strictly on the raw data structures prior to running the path solver, the scale parameter acts as a hard statistical anchor. It remains entirely independent of the penalization parameter $\lambda$, preventing the circular optimization failure where the variance estimate shifts dynamically with the model complexity.
+- **Resolution of Path-Dependent Circularity**: By defining $\hat{\sigma}^2$ strictly on the raw data structures prior to running the path solver, the scale parameter acts as a hard statistical anchor. It remains entirely independent of the penalization parameter $\lambda$, preventing the circular optimization failure where the variance estimate shifts dynamically with the model complexity.
 
--   **Asymptotic Stability against** $\text{RSS} \to 0$: In 2D Fused Lasso, when $\lambda$ approaches zero, the model becomes highly flexible and closely fits the pixel grid. In the classical likelihood-based BIC formulation, the term $n \log(\text{RSS}/n)$ can become numerically unstable in highly flexible regions of the solution path, where the residual sum of squares becomes very small relative to $n$, and may dominate the degrees of freedom penalty, potentially leading to overly complex solutions along the path. Conditioning the criterion on a fixed $\hat{\sigma}^2$ replaces the logarithmic likelihood term with a variance-scaled residual expression, resulting in a more stable and well-behaved selection curve.
+- **Asymptotic Stability against** $\text{RSS} \to 0$: In 2D Fused Lasso, when $\lambda$ approaches zero, the model becomes highly flexible and closely fits the pixel grid. In the classical likelihood-based BIC formulation, the term $n \log(\text{RSS}/n)$ can become numerically unstable in highly flexible regions of the solution path, where the residual sum of squares becomes very small relative to $n$, and may dominate the degrees of freedom penalty, potentially leading to overly complex solutions along the path. Conditioning the criterion on a fixed $\hat{\sigma}^2$ replaces the logarithmic likelihood term with a variance-scaled residual expression, resulting in a more stable and well-behaved selection curve.
 
--   **Preservation of Topology:** The criterion is evaluated globally on the full raster grid, avoiding explicit data partitioning such as masking or block-based splitting, which could introduce artificial boundary effects.
+- **Preservation of Topology:** The criterion is evaluated globally on the full raster grid, avoiding explicit data partitioning such as masking or block-based splitting, which could introduce artificial boundary effects.
 
--   **Exact Graph Degrees of Freedom:** The `genlasso` solver computes the analytical degrees of freedom at every singular optimization step. BIC directly leverages this topological information, penalizing models that create too many fragmented urban components.
+- **Exact Graph Degrees of Freedom:** The `genlasso` solver computes the analytical degrees of freedom at every singular optimization step. BIC directly leverages this topological information, penalizing models that create too many fragmented urban components.
 
--   **Computational Efficiency:** Unlike Cross-Validation, which requires re-running the heavy 2D solver $K$ separate times, BIC is evaluated post-hoc on the full solution path object in a fraction of a second, requiring a single computation of the solution path.
+- **Computational Efficiency:** Unlike Cross-Validation, which requires re-running the heavy 2D solver $K$ separate times, BIC is evaluated post-hoc on the full solution path object in a fraction of a second, requiring a single computation of the solution path.
 
 ### Spatial Decorrelation and Data-Driven Stride Selection
 
@@ -667,11 +667,11 @@ $$\hat{\sigma}^2_{\text{Neumann}}(k^*) = \frac{1}{2} \left[ \text{mean}\left( (\
 
 The operational mechanism of this estimator relies on three structural components:
 
--   Spatial Differences at Distance $k^*$: The terms $(\mathbf{Y}_{i, j + k^*} - \mathbf{Y}_{i, j})$ and $(\mathbf{Y}_{i + k^*, j} - \mathbf{Y}_{i, j})$ compute the forward differences across rows and columns using the optimal stride. By bypassing the immediate neighbors and spanning the exact distance $k^*$, the subtraction neutralizes the underlying geographic signal (macro-urban trends) while ensuring that the pixel values being compared are sufficiently decorrelated from the instrument's sensor blurring.
+- Spatial Differences at Distance $k^*$: The terms $(\mathbf{Y}_{i, j + k^*} - \mathbf{Y}_{i, j})$ and $(\mathbf{Y}_{i + k^*, j} - \mathbf{Y}_{i, j})$ compute the forward differences across rows and columns using the optimal stride. By bypassing the immediate neighbors and spanning the exact distance $k^*$, the subtraction neutralizes the underlying geographic signal (macro-urban trends) while ensuring that the pixel values being compared are sufficiently decorrelated from the instrument's sensor blurring.
 
--   Average Squared Variations: Squaring the differences eliminates directional signs, preventing positive and negative spatial fluctuations from canceling each other out. Taking the global mean of these squared terms across all valid coordinate sub-matrices yields a robust, non-parametric measure of the overall residual volatility within the scene.
+- Average Squared Variations: Squaring the differences eliminates directional signs, preventing positive and negative spatial fluctuations from canceling each other out. Taking the global mean of these squared terms across all valid coordinate sub-matrices yields a robust, non-parametric measure of the overall residual volatility within the scene.
 
--   Unbiased Scaling Factor: By definition, the variance of the difference between two independent and identically distributed random variables is the sum of their individual variances ($\text{Var}(A - B) = \text{Var}(A) + \text{Var}(B) = 2\sigma^2$). Therefore, the raw mean of the squared differences overestimates the true noise variance by a factor of two. Introducing the coefficient $\frac{1}{2}$ corrects this duplication, returning an unbiased, anchored estimation of the pure background stochastic noise ($\hat{\sigma}^2$).
+- Unbiased Scaling Factor: By definition, the variance of the difference between two independent and identically distributed random variables is the sum of their individual variances ($\text{Var}(A - B) = \text{Var}(A) + \text{Var}(B) = 2\sigma^2$). Therefore, the raw mean of the squared differences overestimates the true noise variance by a factor of two. Introducing the coefficient $\frac{1}{2}$ corrects this duplication, returning an unbiased, anchored estimation of the pure background stochastic noise ($\hat{\sigma}^2$).
 
 ```{r}
 # 1. Data Preparation
@@ -774,9 +774,9 @@ Where $N$ represents both the complete length of `v_kla_clean` and the exact tot
 
 **Methodological Implications**
 
--   **Computational Integrity:** The absence of spatial masking means that every single element inside `beta_smooth` maps sequentially to a specific row and column in the geographic grid without index displacement.
+- **Computational Integrity:** The absence of spatial masking means that every single element inside `beta_smooth` maps sequentially to a specific row and column in the geographic grid without index displacement.
 
--   **Direct Raster Coercion:** This streamlined setup allows the vector to be reshaped into a matrix or converted directly into a spatial object (`terra::rast`) in the next step, ensuring that the spatial orientation of the nighttime light clusters remains mathematically uncorrupted.
+- **Direct Raster Coercion:** This streamlined setup allows the vector to be reshaped into a matrix or converted directly into a spatial object (`terra::rast`) in the next step, ensuring that the spatial orientation of the nighttime light clusters remains mathematically uncorrupted.
 
 ```{r}
 # Define which optimal lambda to use for the final map extraction
@@ -796,15 +796,15 @@ $$\mathbf{B} \in \mathbb{R}^{\mathit{nrow\_k} \times \mathit{ncol\_k}}$$
 
 Where:
 
--   $\mathit{nrow\_k}$ and $\mathit{ncol\_k}$ represent the structural dimensions extracted from `r_kampala_square`.
+- $\mathit{nrow\_k}$ and $\mathit{ncol\_k}$ represent the structural dimensions extracted from `r_kampala_square`.
 
--   Each element $\beta^*_i$ from the `beta_smooth` vector is wrapped into the spatial grid following the row-major ordering system utilized by the `terra` environment.
+- Each element $\beta^*_i$ from the `beta_smooth` vector is wrapped into the spatial grid following the row-major ordering system utilized by the `terra` environment.
 
 **Methodological Implications**
 
--   **Geographic Alignment:** By cloning `r_kampala_square`, the newly generated `r_smooth` automatically inherits the original Coordinate Reference System (CRS) and geographic extent. This guarantees that the smoothed map will overlap with other vector layers of Kampala (such as `kampala_border`).
+- **Geographic Alignment:** By cloning `r_kampala_square`, the newly generated `r_smooth` automatically inherits the original Coordinate Reference System (CRS) and geographic extent. This guarantees that the smoothed map will overlap with other vector layers of Kampala (such as `kampala_border`).
 
--   **Downstream Analysis:** The object `r_smooth` is now a fully functional spatial raster. It can be exported to a standard GeoTIFF file via `terra::writeRaster(r_smooth, "kampala_smoothed.tif")` or integrated into further spatial regressions.
+- **Downstream Analysis:** The object `r_smooth` is now a fully functional spatial raster. It can be exported to a standard GeoTIFF file via `terra::writeRaster(r_smooth, "kampala_smoothed.tif")` or integrated into further spatial regressions.
 
 ```{r}
 # 1. Clone the spatial structure of the square Kampala raster
