@@ -581,6 +581,16 @@ r_n_changes <- terra::app(r_change_binary, sum, na.rm = TRUE)
 ## 6. Plot change maps
 
 ```{r}
+quarters <- names(r_smooth_stack)  # e.g. "2012 Q1", "2012 Q2", ...
+
+names(r_changes_stack) <- paste0(
+  quarters[1:(T_layers - 1)],
+  " -> ",
+  quarters[2:T_layers]
+)
+```
+
+```{r}
 # City-wide change intensity per quarter transition
 city_change_ts <- terra::global(abs(r_changes_stack), fun = "sum", na.rm = TRUE)
 city_change_ts$transition <- names(r_changes_stack)
@@ -631,14 +641,6 @@ ggsave(
 ```
 
 ```{r}
-quarters <- names(r_smooth_stack)  # e.g. "2012 Q1", "2012 Q2", ...
-
-names(r_changes_stack) <- paste0(
-  quarters[1:(T_layers - 1)],
-  " -> ",
-  quarters[2:T_layers]
-)
-
 # Maximum absolute change for symmetric color scaling (kept consistent
 # across all change maps for comparability)
 max_abs <- max(abs(terra::values(r_changes_stack)), na.rm = TRUE)
