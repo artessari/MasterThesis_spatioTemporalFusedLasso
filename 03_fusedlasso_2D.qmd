@@ -663,7 +663,7 @@ print(optimal_step)
 
 Once the data-driven stride ($k^*$) is established, it parameterizes a modified first-difference estimator applied along both the horizontal and vertical topologies of the matrix grid:
 
-$$\hat{\sigma}^2_{\text{Neumann}}(k^*) = \frac{1}{2} \left[ \text{mean}\left( (\mathbf{Y}_{i, j + k^*} - \mathbf{Y}_{i, j})^2 \right) + \text{mean}\left( (\mathbf{Y}_{i + k^*, j} - \mathbf{Y}_{i, j})^2 \right) \right]$$
+$$\hat{\sigma}^2_{\text{Neumann}}(k^*) = \frac{1}{4} \left[ \text{mean}\left( (\mathbf{Y}_{i, j + k^*} - \mathbf{Y}_{i, j})^2 \right) + \text{mean}\left( (\mathbf{Y}_{i + k^*, j} - \mathbf{Y}_{i, j})^2 \right) \right]$$
 
 The operational mechanism of this estimator relies on three structural components:
 
@@ -671,7 +671,7 @@ The operational mechanism of this estimator relies on three structural component
 
 - Average Squared Variations: Squaring the differences eliminates directional signs, preventing positive and negative spatial fluctuations from canceling each other out. Taking the global mean of these squared terms across all valid coordinate sub-matrices yields a robust, non-parametric measure of the overall residual volatility within the scene.
 
-- Unbiased Scaling Factor: By definition, the variance of the difference between two independent and identically distributed random variables is the sum of their individual variances ($\text{Var}(A - B) = \text{Var}(A) + \text{Var}(B) = 2\sigma^2$). Therefore, the raw mean of the squared differences overestimates the true noise variance by a factor of two. Introducing the coefficient $\frac{1}{2}$ corrects this duplication, returning an unbiased, anchored estimation of the pure background stochastic noise ($\hat{\sigma}^2$).
+- Unbiased Scaling Factor: By definition, the variance of the difference between two independent and identically distributed random variables is the sum of their individual variances ($\text{Var}(A - B) = \text{Var}(A) + \text{Var}(B) = 2\sigma^2$). Because this variance doubling occurs independently across both the row and column directions, evaluating differences along a 2D spatial grid compounds the scaling factor. Introducing the coefficient $\frac{1}{4}$ corrects this dual duplication, returning an unbiased, anchored estimation of the pure background stochastic noise ($\hat{\sigma}^2$).
 
 ```{r}
 # 1. Data Preparation
@@ -692,8 +692,8 @@ mat <- matrix(y_vec, nrow = nrow_k, ncol = ncol_k, byrow = TRUE)
 diff_h <- mat[, -(1:optimal_step), drop = FALSE] - mat[, -((ncol(mat) - (optimal_step - 1)):ncol(mat)), drop = FALSE]
 diff_v <- mat[-(1:optimal_step), , drop = FALSE] - mat[-((nrow(mat) - (optimal_step - 1)):nrow(mat)), , drop = FALSE]
 
-# Final Lag-K Neumann variance estimate (mean of squared differences divided by 2)
-sig2_est <- (mean(diff_h^2) + mean(diff_v^2)) / 2
+# Final Lag-K Neumann variance estimate (mean of squared differences divided by 4)
+sig2_est <- (mean(diff_h^2) + mean(diff_v^2)) / 4
 
 # 5. Compute Sparsity-Stable BIC Score
 bic_values_psbic <- (rss / sig2_est) + (df_vec * log(n))
@@ -984,7 +984,7 @@ for (f in files_to_process) {
   diff_v <- mat_grid[-(1:optimal_step), , drop = FALSE] - mat_grid[-((nrow(mat_grid) - (optimal_step - 1)):nrow(mat_grid)), , drop = FALSE]
   
   # Final Lag-K Neumann variance estimate
-  sig2_est <- (mean(diff_h^2) + mean(diff_v^2)) / 2
+  sig2_est <- (mean(diff_h^2) + mean(diff_v^2)) / 4
   
   # Compute Sparsity-Stable BIC Score vector
   bic_values_psbic <- (rss / sig2_est) + (df_vec * log(n))
