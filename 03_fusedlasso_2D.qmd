@@ -1016,6 +1016,34 @@ plot(r_smooth,
      range = c(0, max(v_kla_clean)))
 ```
 
+```{r}
+beta_opt <- beta_mat[, best_idx_psbic]
+n_regions <- length(unique(round(beta_opt, 6)))
+n_regions
+```
+
+```{r}
+# Distribution of region sizes (number of pixels per fused constant region)
+region_sizes <- table(round(beta_opt, 6))
+summary(as.numeric(region_sizes))
+
+ggplot(data.frame(size = as.numeric(region_sizes)), aes(x = size)) +
+  geom_histogram(bins = 50, fill = "grey80", color = "black", linewidth = 0.3) +
+  labs(
+    title = "Distribution of Fused Region Sizes",
+    subtitle = paste0("Lambda = ", round(selected_lambda, 3), " | ", length(region_sizes), " regions total"),
+    x = "Region size (pixels)",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
+    plot.subtitle = element_text(hjust = 0.5, size = 10, color = "gray40")
+  )
+```
+
+Interpretation: The region-size distribution is strongly right-skewed: the majority of the 606 fused regions are very small (single-pixel or a few pixels), with frequency decaying rapidly as region size increases, up to a maximum of $\sim 28\text{--}30$ pixels. This indicates that the fused lasso solution at $\lambda = 0.186$ retains a fine-grained spatial partition of the raster rather than aggregating pixels into a small number of large blocks.
+
 # 2D Fused Lasso Model Fitting across Raster Time Series
 
 ## 1. Workspace Setup and File Selection
