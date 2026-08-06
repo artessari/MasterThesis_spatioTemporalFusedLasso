@@ -644,7 +644,7 @@ Where $\rho_i(h)$ represents the empirical autocorrelation coefficient of row $i
 
 $$k^* = \min \left\{ h \in \mathbb{N}^+ : \bar{\rho}(h) < 0.20 \right\}$$
 
-This $0.20$ threshold represents the critical boundary where approximately $80\%$ of the localized neighbor-to-neighbor shared variance is dissipated. If the structural spatial correlation is exceptionally persistent and does not cross this threshold within the evaluated window, a safety fallback value of $k^* = 3$ is automatically applied to guarantee execution.
+A threshold of $0.20$ is adopted as a conservative heuristic to identify the first lag at which short-range spatial dependence becomes sufficiently weak. If the structural spatial correlation is exceptionally persistent and does not cross this threshold within the evaluated window, a safety fallback value of $k^* = 3$ is automatically applied to guarantee execution.
 
 ```{r}
 # 1. Extract the original data matrix from the raster object
