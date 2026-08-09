@@ -1,0 +1,181 @@
+---
+title: "3D Fused Lasso"
+format: pdf
+editor: visual
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+knitr::opts_chunk$set(
+  fig.width = 10,  
+  fig.height = 5,    
+  fig.align = "center",
+  out.width = "100%",
+  dpi = 300
+)
+
+options(tikzDefaultEngine = 'luatex')
+
+rm(list = ls())
+
+#### Setup
+# Load packages
+library(genlasso)
+library(geodata)
+library(tidyterra)
+library(tidyverse)
+library(progress)
+library(patchwork)
+library(Matrix)
+library(CVXR)
+
+# Folders
+data_dir <- file.path(getwd(), "data")
+kampala_dir <- file.path(data_dir, "kampala")
+
+# Output directories 
+model_output_folder <- "output_fits"
+plots_output_folder <- "output_plots"
+
+if (!dir.exists(model_output_folder)) {
+  dir.create(model_output_folder)
+}
+
+if (!dir.exists(plots_output_folder)) {
+  dir.create(plots_output_folder)
+}
+
+# Load the official administrative boundaries
+roi_sf <- readRDS("./data/gadm/gadm41_UGA_1_pk.rds")
+kampala_border <- roi_sf[roi_sf$NAME_1 == "Kampala"]
+```
+
+## 1. Load and prep all quarters
+
+```{r}
+files <- list.files(
+  path       = kampala_dir,
+  pattern    = "ntl_[0-9]{4}_Q[1-4]_kampala\\.tif$",
+  full.names = TRUE
+) %>% sort()
+```
+
+```{r}
+## Select a subset of files for testing
+files_subset <- tail(files, 8)
+```
+
+```{r}
+# 1. Load raster files
+r_list <- lapply(files_subset, rast)
+
+# 2. Create a multi-layer SpatRaster
+r_stack <- terra::rast(r_list)
+
+# 3. Assign quarter labels to layers
+layer_names <- gsub("ntl_|_kampala\\.tif", "", basename(files_subset))
+names(r_stack) <- gsub("_", " ", layer_names)
+
+# 4. Extract spatial and temporal dimensions
+nrow_k   <- terra::nrow(r_stack)
+ncol_k   <- terra::ncol(r_stack)
+n_cells  <- terra::ncell(r_stack)
+T_layers <- terra::nlyr(r_stack)
+
+# 5. Extract pixel-by-quarter matrix (without NA, matrix size is [n_cells x T_layers])
+Y <- terra::values(r_stack)
+```
+
+## 2. Construction of Spatial and Temporal Penalty Matrices
+
+```{r}
+# 1. Build the spatial penalty matrix (D_space)
+# This penalizes differences between adjacent pixels within the same quarter
+rows_list <- c()
+cols_list <- c()
+vals_list <- c()
+edge_counter <- 1
+
+for (t in 1:T_layers) {
+  offset <- (t - 1) * n_cells
+  for (r in 1:nrow_k) {
+    for (c in 1:ncol_k) {
+      current_cell <- terra::cellFromRowCol(r_stack, r, c)
+      current_idx <- offset + current_cell
+      
+      # Connect with right neighbor
+      if (c < ncol_k) {
+        right_cell <- terra::cellFromRowCol(r_stack, r, c + 1)
+        right_idx <- offset + right_cell
+        
+        rows_list <- c(rows_list, edge_counter, edge_counter)
+        cols_list <- c(cols_list, current_idx, right_idx)
+        vals_list <- c(vals_list, 1, -1)
+        edge_counter <- edge_counter + 1
+      }
+      
+      # Connect with bottom neighbor
+      if (r < nrow_k) {
+        bottom_cell <- terra::cellFromRowCol(r_stack, r + 1, c)
+        bottom_idx <- offset + bottom_cell
+        
+        rows_list <- c(rows_list, edge_counter, edge_counter)
+        cols_list <- c(cols_list, current_idx, bottom_idx)
+        vals_list <- c(vals_list, 1, -1)
+        edge_counter <- edge_counter + 1
+      }
+    }
+  }
+}
+
+# Create the sparse spatial penalty matrix
+n_spatial_edges <- edge_counter - 1
+D_space <- sparseMatrix(i = rows_list, j = cols_list, x = vals_list, 
+                        dims = c(n_spatial_edges, n_cells * T_layers))
+```
+
+```{r}
+# 2. Build the temporal penalty matrix (D_time)
+# This penalizes differences for the same pixel between consecutive quarters
+t_rows_list <- c()
+t_cols_list <- c()
+t_vals_list <- c()
+t_edge_counter <- 1
+
+for (t in 1:(T_layers - 1)) {
+  offset_t1 <- (t - 1) * n_cells
+  offset_t2 <- t * n_cells
+  
+  for (cell in 1:n_cells) {
+    idx_t1 <- offset_t1 + cell
+    idx_t2 <- offset_t2 + cell
+    
+    t_rows_list <- c(t_rows_list, t_edge_counter, t_edge_counter)
+    t_cols_list <- c(t_cols_list, idx_t1, idx_t2)
+    t_vals_list <- c(t_vals_list, 1, -1)
+    t_edge_counter <- t_edge_counter + 1
+  }
+}
+
+# Create the sparse temporal penalty matrix
+n_temporal_edges <- t_edge_counter - 1
+D_time <- sparseMatrix(i = t_rows_list, j = t_cols_list, x = t_vals_list, 
+                       dims = c(n_temporal_edges, n_cells * T_layers))
+```
+
+```{r}
+# Define the expected total number of coefficients
+expected_p <- n_cells * T_layers
+
+# Initialize beta as a vector of zeros with length expected_p
+beta <- numeric(expected_p)
+
+# Test to verify dimensions of penalty matrices and coefficient vector
+stopifnot(ncol(D_time) == expected_p)
+stopifnot(ncol(D_space) == expected_p)
+stopifnot(length(beta) == expected_p) # Check expected coefficient vector length
+```
+
+## 3. Formulation and Solution of the Spatiotemporal Fused Lasso Optimization Problem
