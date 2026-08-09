@@ -71,6 +71,11 @@ files_subset <- tail(files, 8)
 # 1. Load raster files
 r_list <- lapply(files_subset, rast)
 
+geom_ok <- sapply(r_list[-1], function(r) compareGeom(r_list[[1]], r, stopOnError = FALSE))
+stopifnot(all(geom_ok))
+```
+
+```{r}
 # 2. Create a multi-layer SpatRaster
 r_stack <- terra::rast(r_list)
 
@@ -90,92 +95,103 @@ Y <- terra::values(r_stack)
 
 ## 2. Construction of Spatial and Temporal Penalty Matrices
 
-```{r}
-# 1. Build the spatial penalty matrix (D_space)
-# This penalizes differences between adjacent pixels within the same quarter
-rows_list <- c()
-cols_list <- c()
-vals_list <- c()
-edge_counter <- 1
-
-for (t in 1:T_layers) {
-  offset <- (t - 1) * n_cells
-  for (r in 1:nrow_k) {
-    for (c in 1:ncol_k) {
-      current_cell <- terra::cellFromRowCol(r_stack, r, c)
-      current_idx <- offset + current_cell
-      
-      # Connect with right neighbor
-      if (c < ncol_k) {
-        right_cell <- terra::cellFromRowCol(r_stack, r, c + 1)
-        right_idx <- offset + right_cell
-        
-        rows_list <- c(rows_list, edge_counter, edge_counter)
-        cols_list <- c(cols_list, current_idx, right_idx)
-        vals_list <- c(vals_list, 1, -1)
-        edge_counter <- edge_counter + 1
-      }
-      
-      # Connect with bottom neighbor
-      if (r < nrow_k) {
-        bottom_cell <- terra::cellFromRowCol(r_stack, r + 1, c)
-        bottom_idx <- offset + bottom_cell
-        
-        rows_list <- c(rows_list, edge_counter, edge_counter)
-        cols_list <- c(cols_list, current_idx, bottom_idx)
-        vals_list <- c(vals_list, 1, -1)
-        edge_counter <- edge_counter + 1
-      }
-    }
-  }
-}
-
-# Create the sparse spatial penalty matrix
-n_spatial_edges <- edge_counter - 1
-D_space <- sparseMatrix(i = rows_list, j = cols_list, x = vals_list, 
-                        dims = c(n_spatial_edges, n_cells * T_layers))
-```
+`build_spatial_D()` builds the spatial fused-lasso penalty matrix D_space, connecting horizontal and vertical pixel neighbors WITHIN each quarter, replicated across all T_layers quarters.
 
 ```{r}
-# 2. Build the temporal penalty matrix (D_time)
-# This penalizes differences for the same pixel between consecutive quarters
-t_rows_list <- c()
-t_cols_list <- c()
-t_vals_list <- c()
-t_edge_counter <- 1
-
-for (t in 1:(T_layers - 1)) {
-  offset_t1 <- (t - 1) * n_cells
-  offset_t2 <- t * n_cells
+build_spatial_D <- function(r_stack, nrow_k, ncol_k, n_cells, T_layers) {
   
-  for (cell in 1:n_cells) {
-    idx_t1 <- offset_t1 + cell
-    idx_t2 <- offset_t2 + cell
-    
-    t_rows_list <- c(t_rows_list, t_edge_counter, t_edge_counter)
-    t_cols_list <- c(t_cols_list, idx_t1, idx_t2)
-    t_vals_list <- c(t_vals_list, 1, -1)
-    t_edge_counter <- t_edge_counter + 1
-  }
+  ## Horizontal edges (right neighbor), for ONE quarter
+  rows_h <- rep(1:nrow_k, each = ncol_k - 1)
+  cols_h <- rep(1:(ncol_k - 1), times = nrow_k)
+  
+  cell_left  <- terra::cellFromRowCol(r_stack, rows_h, cols_h)
+  cell_right <- terra::cellFromRowCol(r_stack, rows_h, cols_h + 1)
+  n_h <- length(cell_left)
+  
+  ## Vertical edges (bottom neighbor), for ONE quarter
+  rows_v <- rep(1:(nrow_k - 1), each = ncol_k)
+  cols_v <- rep(1:ncol_k, times = nrow_k - 1)
+  
+  cell_top    <- terra::cellFromRowCol(r_stack, rows_v, cols_v)
+  cell_bottom <- terra::cellFromRowCol(r_stack, rows_v + 1, cols_v)
+  n_v <- length(cell_top)
+  
+  ## Assemble edge list for a SINGLE quarter (local cell indices)
+  n_spatial_edges_per_quarter <- n_h + n_v
+  
+  i_h <- rep(1:n_h, each = 2)
+  j_h <- as.vector(rbind(cell_left, cell_right))
+  x_h <- rep(c(1, -1), times = n_h)
+  
+  i_v <- rep(n_h + (1:n_v), each = 2)
+  j_v <- as.vector(rbind(cell_top, cell_bottom))
+  x_v <- rep(c(1, -1), times = n_v)
+  
+  i_base <- c(i_h, i_v)
+  j_base <- c(j_h, j_v)
+  x_base <- c(x_h, x_v)
+  
+  ## Replicate the single-quarter edge list across all T_layers quarters
+  i_full <- unlist(lapply(1:T_layers, function(t) i_base + (t - 1) * n_spatial_edges_per_quarter))
+  j_full <- unlist(lapply(1:T_layers, function(t) j_base + (t - 1) * n_cells))
+  x_full <- rep(x_base, T_layers)
+  
+  n_spatial_edges <- n_spatial_edges_per_quarter * T_layers
+  
+  D_space <- sparseMatrix(i = i_full, j = j_full, x = x_full,
+                          dims = c(n_spatial_edges, n_cells * T_layers))
+  
+  ## sanity check: independent formula for the expected edge count
+  expected_edges <- (nrow_k * (ncol_k - 1) + (nrow_k - 1) * ncol_k) * T_layers
+  stopifnot(nrow(D_space) == expected_edges)
+  
+  D_space
 }
+```
 
-# Create the sparse temporal penalty matrix
-n_temporal_edges <- t_edge_counter - 1
-D_time <- sparseMatrix(i = t_rows_list, j = t_cols_list, x = t_vals_list, 
-                       dims = c(n_temporal_edges, n_cells * T_layers))
+`build_temporal_D()` builds the temporal fused-lasso penalty matrix D_time, connecting each pixel to itself in the next quarter (t -\> t+1).
+
+```{r}
+build_temporal_D <- function(n_cells, T_layers) {
+  
+  n_temporal_edges <- n_cells * (T_layers - 1)
+  
+  # pixel id, repeated per transition
+  cell_seq <- rep(1:n_cells, times = T_layers - 1)          
+  # source quarter of the transition
+  t_seq <- rep(1:(T_layers - 1), each = n_cells)         
+  
+  idx_t1 <- (t_seq - 1) * n_cells + cell_seq # global index at time t
+  idx_t2 <- t_seq * n_cells + cell_seq # global index at time t+1
+  
+  t_i <- rep(1:n_temporal_edges, each = 2)
+  t_j <- as.vector(rbind(idx_t1, idx_t2))
+  t_x <- rep(c(1, -1), times = n_temporal_edges)
+  
+  D_time <- sparseMatrix(i = t_i, j = t_j, x = t_x,
+                         dims = c(n_temporal_edges, n_cells * T_layers))
+  
+  stopifnot(nrow(D_time) == n_temporal_edges)
+  
+  D_time
+}
 ```
 
 ```{r}
-# Define the expected total number of coefficients
-expected_p <- n_cells * T_layers
+# Usage
+D_space <- build_spatial_D(r_stack, nrow_k, ncol_k, n_cells, T_layers)
+D_time  <- build_temporal_D(n_cells, T_layers)
 
-# Initialize beta as a vector of zeros with length expected_p
+# Sanity checks
+expected_p <- n_cells * T_layers
 beta <- numeric(expected_p)
 
-# Test to verify dimensions of penalty matrices and coefficient vector
 stopifnot(ncol(D_time) == expected_p)
 stopifnot(ncol(D_space) == expected_p)
-stopifnot(length(beta) == expected_p) # Check expected coefficient vector length
+stopifnot(length(beta) == expected_p)
+
+cat(sprintf("D_space: %d spatial edges x %d coefficients\n", nrow(D_space), ncol(D_space)))
+cat(sprintf("D_time:  %d temporal edges x %d coefficients\n", nrow(D_time), ncol(D_time)))
 ```
 
 ## 3. Formulation and Solution of the Spatiotemporal Fused Lasso Optimization Problem
