@@ -231,13 +231,13 @@ cat("D_space_q1: structure verified -", nrow(D_space_q1), "edges, all between va
 
 Each row of $D_{space}$ represents a single edge in the spatial adjacency graph, which is a pair of pixels that the fused lasso penalty tries to fuse together. Rather than trusting the construction blindly, this check verifies three properties that must hold if the matrix is correct.
 
-- **First,** the validation checks that every row has exactly two non-zero entries. Since a row encodes a difference between two pixels, it must involve exactly two columns, specifically one for each pixel in the pair. Using `summary()` on the sparse matrix gives only the non-zero positions directly, without ever densifying the matrix, and counting how many times each row index appears determines whether any edge is malformed, such as a pixel connected to itself, or a corrupted row with too few or too many entries.
+-   **First,** the validation checks that every row has exactly two non-zero entries. Since a row encodes a difference between two pixels, it must involve exactly two columns, specifically one for each pixel in the pair. Using `summary()` on the sparse matrix gives only the non-zero positions directly, without ever densifying the matrix, and counting how many times each row index appears determines whether any edge is malformed, such as a pixel connected to itself, or a corrupted row with too few or too many entries.
 
-- **Second,** the validation checks that the two non-zero values in each row sum to zero. Since a row represents $\beta_a - \beta_b$, the two entries should be $+1$ and $-1$. Rather than checking each value individually, summing them provides a fast, vectorized way to confirm the correct signs, because if they summed to anything other than zero, it would indicate a sign bug in the construction.
+-   **Second,** the validation checks that the two non-zero values in each row sum to zero. Since a row represents $\beta_a - \beta_b$, the two entries should be $+1$ and $-1$. Rather than checking each value individually, summing them provides a fast, vectorized way to confirm the correct signs, because if they summed to anything other than zero, it would indicate a sign bug in the construction.
 
 The first two checks only validate the shape of each row (two entries with opposite signs), leaving open the question of which pixels are actually connected. A row could technically have two valid $+1/-1$ entries linking two pixels on opposite corners of the grid, and these two checks alone would not catch it.
 
-- **Third,** the process converts each pixel's linear column index back into its $(row, column)$ position on the grid, which is the inverse of the indexing formula used to build $D_{space}$ initially, and computes the Manhattan distance between the two pixels in each edge by taking the sum of the absolute differences in row and column. A distance of exactly $1$ confirms the two pixels are true grid neighbors (up, down, left, or right), a distance of $0$ indicates a pixel connected to itself, and anything greater than $1$ means the edge links non-adjacent pixels, revealing a bug capable of slipping silently into complex indexing, such as gluing together pixels from different quarters due to incorrect offsets.
+-   **Third,** the process converts each pixel's linear column index back into its $(row, column)$ position on the grid, which is the inverse of the indexing formula used to build $D_{space}$ initially, and computes the Manhattan distance between the two pixels in each edge by taking the sum of the absolute differences in row and column. A distance of exactly $1$ confirms the two pixels are true grid neighbors (up, down, left, or right), a distance of $0$ indicates a pixel connected to itself, and anything greater than $1$ means the edge links non-adjacent pixels, revealing a bug capable of slipping silently into complex indexing, such as gluing together pixels from different quarters due to incorrect offsets.
 
 Taken together, the first two checks confirm that each row is well-formed as a difference term, while the third confirms meaningful construction, ensuring the matrix genuinely encodes physical adjacency on the pixel grid, which is the property that establishes $D_{space}$ as a spatial penalty rather than an arbitrary set of connections.
 
@@ -327,9 +327,31 @@ cat("D_space_q1 is confirmed equivalent to genlasso::getD2dSparse()\n")
 
 ## 3. Formulation and Solution of the Spatiotemporal Fused Lasso Optimization Problem
 
-$$\hat{\beta} = \arg\min_{\beta \in \mathbb{R}^p} \frac{1}{2} \Vert{}y - \beta\Vert{}_2^2 + \lambda_1 \Vert{}\beta\Vert{}_1 + \lambda_2 \Vert{}D_{space} \beta\Vert{}_1 + \lambda_3 \Vert{}D_{time} \beta\Vert{}_1$$
+Idea: Capture both spatial smoothness and temporal trends simultaneously $\to$ extend standard 1D trend filtering and 2D fused lasso into a unified **3D Spatiotemporal Fused Lasso** framework
 
-Solved via ADMM (three independent lambdas, no path algorithm, sparse Cholesky factorized once and reused across iterations).
+Given a spatio-temporal dataset where $y_{s,t}$ represents the observed value at spatial location (pixel) $s \in \{1, \dots, S\}$ and time step $t \in \{1, \dots, T\}$, the optimal regularized coefficient matrix $\hat{\beta}$ is defined as the solution to the following convex optimization problem:
+
+$$
+\hat{\beta} = \arg\min_{\beta} \left\{ \frac{1}{2} \sum_{s=1}^{S} \sum_{t=1}^{T} (y_{s,t} - \beta_{s,t})^2 + \lambda_1 \sum_{t=1}^{T} \sum_{(s,s') \in \mathcal{E}} \vert{}\beta_{s,t} - \beta_{s',t}\vert{} + \lambda_2 \sum_{s=1}^{S} \sum_{t=1}^{T-1} \vert{}\beta_{s,t} - \beta_{s,t+1}\vert{} \right\}
+$$
+
+### Breakdown of the Objective Function
+
+The formulation consists of three primary components:
+
+-   **Data Fidelity Term (**$\frac{1}{2} \sum \sum (y_{s,t} - \beta_{s,t})^2$):
+
+    This term measures the Residual Sum of Squares (RSS) between the raw observations $y_{s,t}$ and the estimated spatio-temporal coefficients $\beta_{s,t}$, ensuring that the fitted model remains faithful to the original data.
+
+-   **Spatial Penalty Term (**$\lambda_1 \sum \sum \vert{}\beta_{s,t} - \beta_{s',t}\vert{}$):
+
+    Controlled by the tuning parameter $\lambda_1 \ge 0$, this component computes the $L_1$-norm of the differences between neighboring pixels. Here, $\mathcal{E}$ denotes the set of spatial edges (adjacent pixel pairs on the 2D grid). This encourages spatial piece-wise constancy, grouping neighboring pixels with similar characteristics into homogeneous spatial regions for any given time step $t$.
+
+-   **Temporal Penalty Term (**$\lambda_2 \sum \sum \vert{}\beta_{s,t} - \beta_{s,t+1}\vert{}$):
+
+    Controlled by the tuning parameter $\lambda_2 \ge 0$, this component acts as a 0-th order trend filter over time. It penalizes abrupt changes between consecutive time steps for each individual pixel $s$, enforcing a piece-wise constant temporal trajectory (step-like behavior).
+
+Solved via ADMM (Alternating Direction Method of Multipliers) - 2 independent lambdas, no path algorithm, sparse Cholesky factorized once and reused across iterations)
 
 ```{r}
 # soft_threshold()
