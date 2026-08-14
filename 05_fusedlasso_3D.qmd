@@ -383,7 +383,7 @@ admm_fusedlasso3d <- function(y, D_space, D_time,
   D_t <- as(D_time,  "CsparseMatrix")
   I_n <- Diagonal(n)
   
-  ## Factorize once, reused at every iteration (the matrix never changes)
+  ## Factorize once, reused at every iteration
   M <- I_n + rho * (crossprod(D_s) + crossprod(D_t))
   M <- as(M, "CsparseMatrix")
   chol_M <- Cholesky(M, LDL = FALSE, super = TRUE)
@@ -395,9 +395,9 @@ admm_fusedlasso3d <- function(y, D_space, D_time,
   
   history <- data.frame(iter = integer(), r_norm = double(), s_norm = double())
   
-  for (k in 1:max_iter) {
+  for (k in seq_len(max_iter)) {
     
-    ## beta-update: solve the sparse linear system (reusing factorization)
+    ## beta-update
     rhs <- y +
       rho * as.numeric(crossprod(D_s, z1 - u1)) +
       rho * as.numeric(crossprod(D_t, z2 - u2))
@@ -415,17 +415,22 @@ admm_fusedlasso3d <- function(y, D_space, D_time,
     u1 <- u1 + Ds_beta - z1
     u2 <- u2 + Dt_beta - z2
     
-    ## stopping criteria (Boyd et al. 2011, primal/dual residuals)
+    ## Stopping criteria (Boyd et al. 2011)
+    # Primal residual: measures feasibility conformance (Ds*beta - z1 and Dt*beta - z2)
     r_norm <- sqrt(sum((Ds_beta - z1)^2) + sum((Dt_beta - z2)^2))
-    s_norm <- rho * sqrt(sum(as.numeric(crossprod(D_s, z1 - z1_old))^2) +
-                           sum(as.numeric(crossprod(D_t, z2 - z2_old))^2))
     
+    # Dual residual: based on change in beta (rho * [Ds^T(z1 - z1_old) + Dt^T(z2 - z2_old)])
+    s_vec  <- rho * (as.numeric(crossprod(D_s, z1 - z1_old)) + as.numeric(crossprod(D_t, z2 - z2_old)))
+    s_norm <- sqrt(sum(s_vec^2))
+    
+    # Tolerances
     eps_pri  <- sqrt(ms + mt) * tol_abs +
       tol_rel * max(sqrt(sum(Ds_beta^2) + sum(Dt_beta^2)),
                     sqrt(sum(z1^2) + sum(z2^2)))
-    eps_dual <- sqrt(n) * tol_abs +
-      tol_rel * sqrt(sum((rho * as.numeric(crossprod(D_s, u1)))^2) +
-                       sum((rho * as.numeric(crossprod(D_t, u2)))^2))
+    
+    # Dual tolerance depends on the dual variable mapping (rho * (Ds^T u1 + Dt^T u2))
+    dual_var_term <- rho * (as.numeric(crossprod(D_s, u1)) + as.numeric(crossprod(D_t, u2)))
+    eps_dual <- sqrt(n) * tol_abs + tol_rel * sqrt(sum(dual_var_term^2))
     
     history <- rbind(history, data.frame(iter = k, r_norm = r_norm, s_norm = s_norm))
     
