@@ -364,18 +364,16 @@ soft_threshold <- function(x, t) {
 # y        : observed vector, length n = n_cells * T_layers
 # D_space  : spatial penalty matrix (from build_spatial_D)
 # D_time   : temporal penalty matrix (from build_temporal_D)
-# lambda1  : pure sparsity penalty on beta (0 disables this term)
-# lambda2  : spatial fusion penalty
-# lambda3  : temporal fusion penalty
-# rho      : augmented Lagrangian step size (affects convergence
-#            speed only, not the optimal solution)
-admm_fused_lasso_3d <- function(y, D_space, D_time,
-                                lambda1, lambda2, lambda3,
-                                rho = 1,
-                                max_iter = 500,
-                                tol_abs = 1e-4,
-                                tol_rel = 1e-3,
-                                verbose = TRUE) {
+# lambda1  : spatial fusion penalty
+# lambda2  : temporal fusion penalty
+# rho      : augmented Lagrangian step size (affects convergence speed only, not the optimal solution)
+admm_fusedlasso3d <- function(y, D_space, D_time,
+                              lambda1, lambda2,
+                              rho = 1,
+                              max_iter = 500,
+                              tol_abs = 1e-4,
+                              tol_rel = 1e-3,
+                              verbose = TRUE) {
   
   n  <- length(y)
   ms <- nrow(D_space)
@@ -386,50 +384,48 @@ admm_fused_lasso_3d <- function(y, D_space, D_time,
   I_n <- Diagonal(n)
   
   ## Factorize once, reused at every iteration (the matrix never changes)
-  M <- (1 + rho) * I_n + rho * (crossprod(D_s) + crossprod(D_t))
+  M <- I_n + rho * (crossprod(D_s) + crossprod(D_t))
   M <- as(M, "CsparseMatrix")
   chol_M <- Cholesky(M, LDL = FALSE, super = TRUE)
   
   ## Initialization
   beta <- y
-  z1 <- beta;                     u1 <- rep(0, n)
-  z2 <- as.numeric(D_s %*% beta); u2 <- rep(0, ms)
-  z3 <- as.numeric(D_t %*% beta); u3 <- rep(0, mt)
+  z1 <- as.numeric(D_s %*% beta); u1 <- rep(0, ms)
+  z2 <- as.numeric(D_t %*% beta); u2 <- rep(0, mt)
   
   history <- data.frame(iter = integer(), r_norm = double(), s_norm = double())
   
   for (k in 1:max_iter) {
     
     ## beta-update: solve the sparse linear system (reusing factorization)
-    rhs <- y + rho * (z1 - u1) +
-      rho * as.numeric(crossprod(D_s, z2 - u2)) +
-      rho * as.numeric(crossprod(D_t, z3 - u3))
+    rhs <- y +
+      rho * as.numeric(crossprod(D_s, z1 - u1)) +
+      rho * as.numeric(crossprod(D_t, z2 - u2))
     beta <- as.numeric(solve(chol_M, rhs))
     
     Ds_beta <- as.numeric(D_s %*% beta)
     Dt_beta <- as.numeric(D_t %*% beta)
     
     ## z-update (soft-threshold)
-    z1_old <- z1; z2_old <- z2; z3_old <- z3
-    z1 <- soft_threshold(beta + u1, lambda1 / rho)
-    z2 <- soft_threshold(Ds_beta + u2, lambda2 / rho)
-    z3 <- soft_threshold(Dt_beta + u3, lambda3 / rho)
+    z1_old <- z1; z2_old <- z2
+    z1 <- soft_threshold(Ds_beta + u1, lambda1 / rho)
+    z2 <- soft_threshold(Dt_beta + u2, lambda2 / rho)
     
     ## dual update
-    u1 <- u1 + beta - z1
-    u2 <- u2 + Ds_beta - z2
-    u3 <- u3 + Dt_beta - z3
+    u1 <- u1 + Ds_beta - z1
+    u2 <- u2 + Dt_beta - z2
     
     ## stopping criteria (Boyd et al. 2011, primal/dual residuals)
-    r_norm <- sqrt(sum((beta - z1)^2) + sum((Ds_beta - z2)^2) + sum((Dt_beta - z3)^2))
-    s_norm <- rho * sqrt(sum((z1 - z1_old)^2) +
-                           sum(as.numeric(crossprod(D_s, z2 - z2_old))^2) +
-                           sum(as.numeric(crossprod(D_t, z3 - z3_old))^2))
+    r_norm <- sqrt(sum((Ds_beta - z1)^2) + sum((Dt_beta - z2)^2))
+    s_norm <- rho * sqrt(sum(as.numeric(crossprod(D_s, z1 - z1_old))^2) +
+                           sum(as.numeric(crossprod(D_t, z2 - z2_old))^2))
     
-    eps_pri  <- sqrt(n + ms + mt) * tol_abs +
-      tol_rel * max(sqrt(sum(beta^2) + sum(Ds_beta^2) + sum(Dt_beta^2)),
-                    sqrt(sum(z1^2) + sum(z2^2) + sum(z3^2)))
-    eps_dual <- sqrt(n) * tol_abs + tol_rel * sqrt(sum((rho * u1)^2))
+    eps_pri  <- sqrt(ms + mt) * tol_abs +
+      tol_rel * max(sqrt(sum(Ds_beta^2) + sum(Dt_beta^2)),
+                    sqrt(sum(z1^2) + sum(z2^2)))
+    eps_dual <- sqrt(n) * tol_abs +
+      tol_rel * sqrt(sum((rho * as.numeric(crossprod(D_s, u1)))^2) +
+                       sum((rho * as.numeric(crossprod(D_t, u2)))^2))
     
     history <- rbind(history, data.frame(iter = k, r_norm = r_norm, s_norm = s_norm))
     
@@ -443,8 +439,8 @@ admm_fused_lasso_3d <- function(y, D_space, D_time,
     }
   }
   
-  list(beta = beta, z1 = z1, z2 = z2, z3 = z3,
-       u1 = u1, u2 = u2, u3 = u3,
+  list(beta = beta, z1 = z1, z2 = z2,
+       u1 = u1, u2 = u2,
        history = history, n_iter = k)
 }
 ```
@@ -453,11 +449,10 @@ admm_fused_lasso_3d <- function(y, D_space, D_time,
 ## Run on the real Kampala data
 y <- as.vector(Y)   # from terra::values(r_stack), part 1
 
-fit <- admm_fused_lasso_3d(
+fit <- admm_fusedlasso3d(
   y = y, D_space = D_space, D_time = D_time,
-  lambda1 = 0.05,   # pure sparsity on beta (set to 0 to disable)
-  lambda2 = 0.5,    # spatial fusion strength
-  lambda3 = 0.2,    # temporal fusion strength
+  lambda1 = 0.5,    # spatial fusion strength
+  lambda2 = 0.2,    # temporal fusion strength
   rho = 1
 )
 
