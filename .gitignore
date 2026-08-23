@@ -61,3 +61,6 @@ renders/*
 # Local image folders
 images/
 **/images/
+
+# === Cache & Temporary Directories ===
+rosm.cache/
