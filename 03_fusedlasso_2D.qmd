@@ -957,10 +957,9 @@ Where $N$ represents both the complete length of `v_kla_clean` and the exact tot
 
 ```{r}
 # Define which optimal lambda to use for the final map extraction
-# Change to lambda_opt (BIC) or use a manual value from the visual elbow (e.g., 2.5)
 selected_lambda <- lambda_opt_diff2
 
-# 1. Extract the smoothed beta coefficients from the solution path
+# Extract the smoothed beta coefficients from the solution path
 # Since there are no NAs, beta_smooth maps 1:1 to the clean spatial grid length
 beta_smooth <- coef(fit, lambda = selected_lambda)$beta
 ```
@@ -1073,6 +1072,22 @@ The plot displays a side-by-side comparison of the original log-NTL raster and t
 - The visualization reveals that singleton pixels are distributed across the entire extent but appear to coincide predominantly with areas of increased spatial heterogeneity, such as the transition zones between the urban core and darker peripheral areas.
 
 - Conversely, single-pixel regions are conspicuously sparse within the homogeneous high-intensity urban center, suggesting that the regularization parameter effectively captures larger, stable structures in areas of high brightness while preserving localized adaptability only where strictly necessary for signal representation.
+
+## -- Residual Analysis
+
+```{r}
+# Extract smoothed coefficients and compute residuals
+beta_smooth <- coef(fit, lambda = selected_lambda)$beta
+residuals_vector <- as.numeric(v_kla_clean) - beta_smooth
+residuals_vector <- na.omit(residuals_vector)
+
+# Test if the mean is equal to zero
+mean_residual <- mean(residuals_vector)
+t_test_result <- t.test(residuals_vector, mu = 0)
+
+cat("Mean of residuals:", mean_residual, "\n")
+print(t_test_result)
+```
 
 # 2D Fused Lasso Model Fitting across Raster Time Series
 
