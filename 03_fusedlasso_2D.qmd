@@ -270,12 +270,13 @@ length(fit$lambda); min(fit$lambda); max(fit$df)
 
 **! ATTENTION:** The default `maxsteps = 2000` in `fusedlasso2d()` truncated the solution path before convergence ($n = 1710$; path stopped at $\text{df} = 123$, $\lambda_{\min} = 0.496$), covering only the large-$\lambda$ region and later producing a spurious monotonic BIC with no interior minimum.
 
-**Fix:** `maxsteps = 8000` with `approx = TRUE` yields a complete path ($\text{df}_{\max} = 1709$, $\lambda_{\min} \approx 10^{-4}$, $\sim 125\text{s}$ runtime), revealing the expected U-shaped BIC and a well-defined optimal $\lambda$.
+**Fix:** `maxsteps = 8000` yields a complete path ($\text{df}_{\max} = 1709$, $\lambda_{\min} \approx 10^{-4}$, $\sim 125\text{s}$ runtime), revealing the expected U-shaped BIC and a well-defined optimal $\lambda$.
 
 ```{r}
 system.time(
-  fit <- genlasso::fusedlasso2d(y = as.numeric(v_kla_clean), dim1 = nrow_k, dim2 = ncol_k,
-                                maxsteps = 8000, approx = TRUE)
+  fit <- genlasso::fusedlasso2d(y = as.numeric(v_kla_clean), 
+                                dim1 = nrow_k, dim2 = ncol_k, 
+                                maxsteps = 8000) # approx = TRUE
 )
 length(fit$lambda); min(fit$lambda); max(fit$df)
 ```
@@ -1042,7 +1043,7 @@ ggplot(data.frame(size = as.numeric(region_sizes)), aes(x = size)) +
   )
 ```
 
-Interpretation: The region-size distribution is strongly right-skewed: the majority of the 606 fused regions are very small (single-pixel or a few pixels), with frequency decaying rapidly as region size increases, up to a maximum of $\sim 28\text{--}30$ pixels. This indicates that the fused lasso solution at $\lambda = 0.186$ retains a fine-grained spatial partition of the raster rather than aggregating pixels into a small number of large blocks.
+Interpretation: The region-size distribution is strongly right-skewed: the majority of the fused regions are very small (single-pixel or a few pixels), with frequency decaying rapidly as region size increases, up to a maximum of $\sim 28\text{--}30$ pixels. This indicates that the fused lasso solution at $\lambda_{opt_{2nd-diff}}$ retains a fine-grained spatial partition of the raster rather than aggregating pixels into a small number of large blocks.
 
 ```{r}
 # singleton pixels
@@ -1067,7 +1068,7 @@ plot(r_smooth,
 points(singleton_coords, pch = 4, col = "red", lwd = 1.5, cex = 0.8)
 ```
 
-The plot displays a side-by-side comparison of the original log-NTL raster and the Fused Lasso smoothed map (using $\lambda = 0.186$), with red crosses marking spatial singleton pixels (defined as isolated constant regions consisting of a single pixel).
+The plot displays a side-by-side comparison of the original log-NTL raster and the Fused Lasso smoothed map, with red crosses marking spatial singleton pixels (defined as isolated constant regions consisting of a single pixel).
 
 - The visualization reveals that singleton pixels are distributed across the entire extent but appear to coincide predominantly with areas of increased spatial heterogeneity, such as the transition zones between the urban core and darker peripheral areas.
 
