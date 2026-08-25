@@ -1145,7 +1145,8 @@ for (f in files_to_process) {
   fit <- fusedlasso2d(
     y    = v_kla_clean,
     dim1 = ncol_k,
-    dim2 = nrow_k
+    dim2 = nrow_k,
+    maxsteps = 8000
   )
   
   # Define the absolute target destination path using the directory variable
