@@ -358,34 +358,39 @@ Solved via ADMM (Alternating Direction Method of Multipliers) - 2 independent la
 soft_threshold <- function(x, t) {
   sign(x) * pmax(abs(x) - t, 0)
 }
+```
 
-# admm_fused_lasso_3d()
+`prepare_admm_operators()` = Precomputes everything that does NOT depend on lambda1/lambda2: sparse D matrices and the Cholesky factorization of M, which only depends on rho. Reused across the entire lambda grid.
+
+```{r}
+prepare_admm_operators <- function(D_space, D_time, n, rho) {
+  D_s <- as(D_space, "CsparseMatrix")
+  D_t <- as(D_time,  "CsparseMatrix")
+  I_n <- Diagonal(n)
+  
+  M <- I_n + rho * (crossprod(D_s) + crossprod(D_t))
+  M <- as(M, "CsparseMatrix")
+  chol_M <- Cholesky(M, LDL = FALSE, super = TRUE)
+  
+  list(D_s = D_s, D_t = D_t, chol_M = chol_M,
+       n = n, ms = nrow(D_space), mt = nrow(D_time), rho = rho)
+}
+```
+
+```{r}
+# admm_fusedlasso3d()
 # y        : observed vector, length n = n_cells * T_layers
-# D_space  : spatial penalty matrix (from build_spatial_D)
-# D_time   : temporal penalty matrix (from build_temporal_D)
+# ops      : precomputed operators from prepare_admm_operators()
 # lambda1  : spatial fusion penalty
 # lambda2  : temporal fusion penalty
-# rho      : augmented Lagrangian step size (affects convergence speed only, not the optimal solution)
-admm_fusedlasso3d <- function(y, D_space, D_time,
-                              lambda1, lambda2,
-                              rho = 1,
+admm_fusedlasso3d <- function(y, ops, lambda1, lambda2,
                               max_iter = 500,
                               tol_abs = 1e-4,
                               tol_rel = 1e-3,
                               verbose = TRUE) {
   
-  n  <- length(y)
-  ms <- nrow(D_space)
-  mt <- nrow(D_time)
-  
-  D_s <- as(D_space, "CsparseMatrix")
-  D_t <- as(D_time,  "CsparseMatrix")
-  I_n <- Diagonal(n)
-  
-  ## Factorize once, reused at every iteration
-  M <- I_n + rho * (crossprod(D_s) + crossprod(D_t))
-  M <- as(M, "CsparseMatrix")
-  chol_M <- Cholesky(M, LDL = FALSE, super = TRUE)
+  n <- ops$n; ms <- ops$ms; mt <- ops$mt; rho <- ops$rho
+  D_s <- ops$D_s; D_t <- ops$D_t; chol_M <- ops$chol_M
   
   ## Initialization
   beta <- y
@@ -415,19 +420,15 @@ admm_fusedlasso3d <- function(y, D_space, D_time,
     u2 <- u2 + Dt_beta - z2
     
     ## Stopping criteria (Boyd et al. 2011)
-    # Primal residual: measures feasibility conformance (Ds*beta - z1 and Dt*beta - z2)
     r_norm <- sqrt(sum((Ds_beta - z1)^2) + sum((Dt_beta - z2)^2))
     
-    # Dual residual: based on change in beta (rho * [Ds^T(z1 - z1_old) + Dt^T(z2 - z2_old)])
     s_vec  <- rho * (as.numeric(crossprod(D_s, z1 - z1_old)) + as.numeric(crossprod(D_t, z2 - z2_old)))
     s_norm <- sqrt(sum(s_vec^2))
     
-    # Tolerances
     eps_pri  <- sqrt(ms + mt) * tol_abs +
       tol_rel * max(sqrt(sum(Ds_beta^2) + sum(Dt_beta^2)),
                     sqrt(sum(z1^2) + sum(z2^2)))
     
-    # Dual tolerance depends on the dual variable mapping (rho * (Ds^T u1 + Dt^T u2))
     dual_var_term <- rho * (as.numeric(crossprod(D_s, u1)) + as.numeric(crossprod(D_t, u2)))
     eps_dual <- sqrt(n) * tol_abs + tol_rel * sqrt(sum(dual_var_term^2))
     
@@ -470,63 +471,71 @@ estimate_sigma2 <- function(y, D_space, D_time) {
 }
 ```
 
-`compute_df()` = Degrees of freedom estimate: number of connected components of the pixel graph after contracting edges that are fused (estimated difference equal to zero). z1/z2 come from the ADMM fit, and are EXACTLY zero at fused edges due to the soft-threshold step.
+`get_edge_pairs()` = Precomputes the (pixel_a, pixel_b) lookup table for every edge in a penalty matrix, ONCE. This topology never changes across lambda values, only which edges end up fused does.
 
 ```{r}
-compute_df <- function(z1, z2, D_space, D_time, n, tol = 1e-8) {
-  fused_space <- which(abs(z1) < tol)
-  fused_time  <- which(abs(z2) < tol)
-  
-  edges_space <- summary(D_space)[summary(D_space)$i %in% fused_space, ]
-  edges_time  <- summary(D_time)[summary(D_time)$i %in% fused_time, ]
-  
-  el_space <- do.call(rbind, split(edges_space$j, edges_space$i))
-  el_time  <- do.call(rbind, split(edges_time$j,  edges_time$i))
+get_edge_pairs <- function(D) {
+  s <- summary(D)
+  s <- s[order(s$i), ]
+  matrix(s$j, ncol = 2, byrow = TRUE)
+}
+```
+
+`compute_df()` = Degrees of freedom estimate: number of connected components of the pixel graph after keeping only fused edges (estimated difference equal to zero). Uses precomputed edge pair tables, no rebuilding.
+
+```{r}
+compute_df <- function(z1, z2, edge_pairs_space, edge_pairs_time, n, tol = 1e-8) {
+  el_space <- edge_pairs_space[abs(z1) < tol, , drop = FALSE]
+  el_time  <- edge_pairs_time[abs(z2) < tol, , drop = FALSE]
   el <- rbind(el_space, el_time)
   
-  g <- make_empty_graph(n = n, directed = FALSE)
-  if (nrow(el) > 0) g <- add_edges(g, as.vector(t(el)))
+  if (nrow(el) == 0) return(n)   # no fusion at all: every pixel is its own component
   
+  g <- graph_from_edgelist(el, directed = FALSE)
+  g <- add_vertices(g, n - vcount(g))
   components(g)$no
 }
 ```
 
-`grid_search_lambda()` = Fits the ADMM model over a grid of (lambda1, lambda2) combinations, with warm start (each fit initialized from the previous grid point's solution) to speed up convergence across the grid.
+`grid_search_lambda()` = Fits the ADMM model over a grid of (lambda1, lambda2) combinations. Cholesky factorization and edge topology are precomputed once; combinations can optionally be evaluated in parallel across cores.
 
 ```{r}
 grid_search_lambda <- function(y, D_space, D_time,
                                lambda1_grid, lambda2_grid,
-                               rho = 1, max_iter = 300, verbose = FALSE) {
+                               rho = 1, max_iter = 300, n_cores = 1) {
   
   n <- length(y)
+  ops <- prepare_admm_operators(D_space, D_time, n, rho)
   sigma2_est <- estimate_sigma2(y, D_space, D_time)
   
-  results <- data.frame(lambda1 = numeric(), lambda2 = numeric(),
-                        rss = numeric(), df = numeric(), bic = numeric())
+  edge_pairs_space <- get_edge_pairs(D_space)
+  edge_pairs_time  <- get_edge_pairs(D_time)
   
-  warm_beta <- NULL
+  combos <- expand.grid(lambda1 = lambda1_grid, lambda2 = lambda2_grid)
   
-  for (l1 in lambda1_grid) {
-    for (l2 in lambda2_grid) {
-      
-      fit <- admm_fusedlasso3d(
-        y = y, D_space = D_space, D_time = D_time,
-        lambda1 = l1, lambda2 = l2,
-        rho = rho, max_iter = max_iter, verbose = verbose
-      )
-      
-      rss <- sum((y - fit$beta)^2)
-      df  <- compute_df(fit$z1, fit$z2, D_space, D_time, n)
-      bic <- (rss / sigma2_est) + df * log(n)
-      
-      results <- rbind(results, data.frame(lambda1 = l1, lambda2 = l2,
-                                           rss = rss, df = df, bic = bic))
-      
-      warm_beta <- fit$beta   # not currently reused as init, see note below
-    }
+  fit_one <- function(row) {
+    fit <- admm_fusedlasso3d(y, ops, row$lambda1, row$lambda2,
+                             max_iter = max_iter, verbose = FALSE)
+    
+    rss <- sum((y - fit$beta)^2)
+    df  <- compute_df(fit$z1, fit$z2, edge_pairs_space, edge_pairs_time, n)
+    bic <- (rss / sigma2_est) + df * log(n)
+    
+    data.frame(lambda1 = row$lambda1, lambda2 = row$lambda2,
+               rss = rss, df = df, bic = bic)
   }
   
+  rows <- split(combos, seq_len(nrow(combos)))
+  
+  results_list <- if (n_cores > 1) {
+    parallel::mclapply(rows, fit_one, mc.cores = n_cores)
+  } else {
+    lapply(rows, fit_one)
+  }
+  
+  results <- do.call(rbind, results_list)
   best_row <- results[which.min(results$bic), ]
+  
   list(results = results, best = best_row, sigma2_est = sigma2_est)
 }
 ```
@@ -556,29 +565,4 @@ ggplot(grid_out$results, aes(x = lambda1, y = lambda2, fill = bic)) +
   scale_fill_viridis_c() +
   labs(title = "BIC over the (lambda1, lambda2) grid",
        x = "lambda1 (spatial)", y = "lambda2 (temporal)")
-```
-
-```{r}
-## Run on the real Kampala data
-y <- as.vector(Y)   # from terra::values(r_stack), part 1
-
-fit <- admm_fusedlasso3d(
-  y = y, D_space = D_space, D_time = D_time,
-  lambda1 = grid_out$best$lambda1,    # spatial fusion strength
-  lambda2 = grid_out$best$lambda2,    # temporal fusion strength
-  rho = 1
-)
-
-## Reconstruct the estimated space-time cube
-beta_array <- array(fit$beta, dim = c(n_cells, T_layers))
-
-r_smoothed <- r_stack          # same geographic template
-values(r_smoothed) <- beta_array
-names(r_smoothed) <- names(r_stack)
-
-## Quick visual check
-terra::plot(r_smoothed)
-
-## Convergence diagnostic
-plot(fit$history$iter, fit$history$r_norm, type = "l", log = "y", xlab = "iteration", ylab = "primal residual (log scale)")
 ```
