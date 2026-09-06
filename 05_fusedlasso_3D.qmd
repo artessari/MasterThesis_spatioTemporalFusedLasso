@@ -497,7 +497,7 @@ compute_df <- function(z1, z2, edge_pairs_space, edge_pairs_time, n, tol = 1e-8)
 }
 ```
 
-`grid_search_lambda()` = Fits the ADMM model over a grid of (lambda1, lambda2) combinations. Cholesky factorization and edge topology are precomputed once; combinations can optionally be evaluated in parallel across cores.
+`grid_search_lambda()` = Fits the ADMM model over a grid of (lambda1, lambda2) combinations. Cholesky factorization and edge topology are precomputed once; combinations can optionally be evaluated in parallel across cores. – combinations are evaluated in parallel via a PSOCK cluster (Windows-compatible)
 
 ```{r}
 grid_search_lambda <- function(y, D_space, D_time,
@@ -512,6 +512,7 @@ grid_search_lambda <- function(y, D_space, D_time,
   edge_pairs_time  <- get_edge_pairs(D_time)
   
   combos <- expand.grid(lambda1 = lambda1_grid, lambda2 = lambda2_grid)
+  rows <- split(combos, seq_len(nrow(combos)))
   
   fit_one <- function(row) {
     fit <- admm_fusedlasso3d(y, ops, row$lambda1, row$lambda2,
@@ -525,12 +526,20 @@ grid_search_lambda <- function(y, D_space, D_time,
                rss = rss, df = df, bic = bic)
   }
   
-  rows <- split(combos, seq_len(nrow(combos)))
-  
-  results_list <- if (n_cores > 1) {
-    parallel::mclapply(rows, fit_one, mc.cores = n_cores)
+  if (n_cores > 1) {
+    cl <- parallel::makeCluster(n_cores)
+    on.exit(parallel::stopCluster(cl), add = TRUE)
+    
+    parallel::clusterEvalQ(cl, { library(Matrix); library(igraph) })
+    parallel::clusterExport(cl,
+                            varlist = c("y", "ops", "edge_pairs_space", "edge_pairs_time",
+                                        "sigma2_est", "n", "max_iter",
+                                        "admm_fusedlasso3d", "soft_threshold", "compute_df"),
+                            envir = environment())
+    
+    results_list <- parallel::parLapply(cl, rows, fit_one)
   } else {
-    lapply(rows, fit_one)
+    results_list <- lapply(rows, fit_one)
   }
   
   results <- do.call(rbind, results_list)
@@ -549,9 +558,12 @@ y <- as.vector(Y)   # from terra::values(r_stack), part 1
 lambda1_grid <- build_lambda_grid(min_val = 1e-3, max_val = 5, n = 15)
 lambda2_grid <- build_lambda_grid(min_val = 1e-3, max_val = 5, n = 15)
 
+n_cores_to_use <- parallel::detectCores() - 1
+
 grid_out <- grid_search_lambda(
   y = y, D_space = D_space, D_time = D_time,
-  lambda1_grid = lambda1_grid, lambda2_grid = lambda2_grid
+  lambda1_grid = lambda1_grid, lambda2_grid = lambda2_grid,
+  n_cores = n_cores_to_use
 )
 
 cat(sprintf("Best lambda1 (spatial) = %.4f, lambda2 (temporal) = %.4f, BIC = %.2f\n",
@@ -586,9 +598,12 @@ lambda1_grid_refined <- build_lambda_grid(min_val = lambda1_bounds[1],
 lambda2_grid_refined <- build_lambda_grid(min_val = lambda2_bounds[1],
                                           max_val = lambda2_bounds[2], n = 15)
 
-grid_out_refined <- grid_search_lambda(
+n_cores_to_use <- parallel::detectCores() - 1
+
+grid_out <- grid_search_lambda(
   y = y, D_space = D_space, D_time = D_time,
-  lambda1_grid = lambda1_grid_refined, lambda2_grid = lambda2_grid_refined
+  lambda1_grid = lambda1_grid, lambda2_grid = lambda2_grid,
+  n_cores = n_cores_to_use
 )
 
 cat(sprintf("Refined: lambda1 = %.5f, lambda2 = %.5f, BIC = %.2f\n",
