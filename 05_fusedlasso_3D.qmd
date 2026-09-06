@@ -566,3 +566,40 @@ ggplot(grid_out$results, aes(x = lambda1, y = lambda2, fill = bic)) +
   labs(title = "BIC over the (lambda1, lambda2) grid",
        x = "lambda1 (spatial)", y = "lambda2 (temporal)")
 ```
+
+```{r}
+# Find the neighboring grid values around the best point, to define
+# the range for the refined search (avoids picking bounds by hand)
+get_refined_bounds <- function(grid, best_val) {
+  sorted_grid <- sort(grid)
+  idx <- which(sorted_grid == best_val)
+  lower <- if (idx > 1) sorted_grid[idx - 1] else sorted_grid[idx] / 2
+  upper <- if (idx < length(sorted_grid)) sorted_grid[idx + 1] else sorted_grid[idx] * 2
+  c(lower, upper)
+}
+
+lambda1_bounds <- get_refined_bounds(lambda1_grid, grid_out$best$lambda1)
+lambda2_bounds <- get_refined_bounds(lambda2_grid, grid_out$best$lambda2)
+
+lambda1_grid_refined <- build_lambda_grid(min_val = lambda1_bounds[1],
+                                          max_val = lambda1_bounds[2], n = 15)
+lambda2_grid_refined <- build_lambda_grid(min_val = lambda2_bounds[1],
+                                          max_val = lambda2_bounds[2], n = 15)
+
+grid_out_refined <- grid_search_lambda(
+  y = y, D_space = D_space, D_time = D_time,
+  lambda1_grid = lambda1_grid_refined, lambda2_grid = lambda2_grid_refined
+)
+
+cat(sprintf("Refined: lambda1 = %.5f, lambda2 = %.5f, BIC = %.2f\n",
+            grid_out_refined$best$lambda1, grid_out_refined$best$lambda2,
+            grid_out_refined$best$bic))
+
+ggplot(grid_out_refined$results, aes(x = lambda1, y = lambda2, fill = bic)) +
+  geom_tile() +
+  scale_x_log10() +
+  scale_y_log10() +
+  scale_fill_viridis_c() +
+  labs(title = "Refined BIC search around the coarse-grid optimum",
+       x = "lambda1 (spatial)", y = "lambda2 (temporal)")
+```
