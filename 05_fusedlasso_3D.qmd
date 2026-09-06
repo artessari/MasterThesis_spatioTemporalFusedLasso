@@ -29,6 +29,7 @@ library(tidyverse)
 library(progress)
 library(patchwork)
 library(Matrix)
+library(igraph)
 
 # Folders
 data_dir <- file.path(getwd(), "data")
@@ -231,13 +232,13 @@ cat("D_space_q1: structure verified -", nrow(D_space_q1), "edges, all between va
 
 Each row of $D_{space}$ represents a single edge in the spatial adjacency graph, which is a pair of pixels that the fused lasso penalty tries to fuse together. Rather than trusting the construction blindly, this check verifies three properties that must hold if the matrix is correct.
 
--   **First,** the validation checks that every row has exactly two non-zero entries. Since a row encodes a difference between two pixels, it must involve exactly two columns, specifically one for each pixel in the pair. Using `summary()` on the sparse matrix gives only the non-zero positions directly, without ever densifying the matrix, and counting how many times each row index appears determines whether any edge is malformed, such as a pixel connected to itself, or a corrupted row with too few or too many entries.
+- **First,** the validation checks that every row has exactly two non-zero entries. Since a row encodes a difference between two pixels, it must involve exactly two columns, specifically one for each pixel in the pair. Using `summary()` on the sparse matrix gives only the non-zero positions directly, without ever densifying the matrix, and counting how many times each row index appears determines whether any edge is malformed, such as a pixel connected to itself, or a corrupted row with too few or too many entries.
 
--   **Second,** the validation checks that the two non-zero values in each row sum to zero. Since a row represents $\beta_a - \beta_b$, the two entries should be $+1$ and $-1$. Rather than checking each value individually, summing them provides a fast, vectorized way to confirm the correct signs, because if they summed to anything other than zero, it would indicate a sign bug in the construction.
+- **Second,** the validation checks that the two non-zero values in each row sum to zero. Since a row represents $\beta_a - \beta_b$, the two entries should be $+1$ and $-1$. Rather than checking each value individually, summing them provides a fast, vectorized way to confirm the correct signs, because if they summed to anything other than zero, it would indicate a sign bug in the construction.
 
 The first two checks only validate the shape of each row (two entries with opposite signs), leaving open the question of which pixels are actually connected. A row could technically have two valid $+1/-1$ entries linking two pixels on opposite corners of the grid, and these two checks alone would not catch it.
 
--   **Third,** the process converts each pixel's linear column index back into its $(row, column)$ position on the grid, which is the inverse of the indexing formula used to build $D_{space}$ initially, and computes the Manhattan distance between the two pixels in each edge by taking the sum of the absolute differences in row and column. A distance of exactly $1$ confirms the two pixels are true grid neighbors (up, down, left, or right), a distance of $0$ indicates a pixel connected to itself, and anything greater than $1$ means the edge links non-adjacent pixels, revealing a bug capable of slipping silently into complex indexing, such as gluing together pixels from different quarters due to incorrect offsets.
+- **Third,** the process converts each pixel's linear column index back into its $(row, column)$ position on the grid, which is the inverse of the indexing formula used to build $D_{space}$ initially, and computes the Manhattan distance between the two pixels in each edge by taking the sum of the absolute differences in row and column. A distance of exactly $1$ confirms the two pixels are true grid neighbors (up, down, left, or right), a distance of $0$ indicates a pixel connected to itself, and anything greater than $1$ means the edge links non-adjacent pixels, revealing a bug capable of slipping silently into complex indexing, such as gluing together pixels from different quarters due to incorrect offsets.
 
 Taken together, the first two checks confirm that each row is well-formed as a difference term, while the third confirms meaningful construction, ensuring the matrix genuinely encodes physical adjacency on the pixel grid, which is the property that establishes $D_{space}$ as a spatial penalty rather than an arbitrary set of connections.
 
@@ -331,25 +332,23 @@ Idea: Capture both spatial smoothness and temporal trends simultaneously $\to$ e
 
 Given a spatio-temporal dataset where $y_{s,t}$ represents the observed value at spatial location (pixel) $s \in \{1, \dots, S\}$ and time step $t \in \{1, \dots, T\}$, the optimal regularized coefficient matrix $\hat{\beta}$ is defined as the solution to the following convex optimization problem:
 
-$$
-\hat{\beta} = \arg\min_{\beta} \left\{ \frac{1}{2} \sum_{s=1}^{S} \sum_{t=1}^{T} (y_{s,t} - \beta_{s,t})^2 + \lambda_1 \sum_{t=1}^{T} \sum_{(s,s') \in \mathcal{E}} \vert{}\beta_{s,t} - \beta_{s',t}\vert{} + \lambda_2 \sum_{s=1}^{S} \sum_{t=1}^{T-1} \vert{}\beta_{s,t} - \beta_{s,t+1}\vert{} \right\}
-$$
+$$\hat{\beta} = \arg\min_{\beta} \left\{ \frac{1}{2} \sum_{s=1}^{S} \sum_{t=1}^{T} (y_{s,t} - \beta_{s,t})^2 + \lambda_1 \sum_{t=1}^{T} \sum_{(s,s') \in \mathcal{E}} \vert{}\beta_{s,t} - \beta_{s',t}\vert{} + \lambda_2 \sum_{s=1}^{S} \sum_{t=1}^{T-1} \vert{}\beta_{s,t} - \beta_{s,t+1}\vert{} \right\}$$
 
 ### Breakdown of the Objective Function
 
 The formulation consists of three primary components:
 
--   **Data Fidelity Term (**$\frac{1}{2} \sum \sum (y_{s,t} - \beta_{s,t})^2$):
+- **Data Fidelity Term (**$\frac{1}{2} \sum \sum (y_{s,t} - \beta_{s,t})^2$):
 
-    This term measures the Residual Sum of Squares (RSS) between the raw observations $y_{s,t}$ and the estimated spatio-temporal coefficients $\beta_{s,t}$, ensuring that the fitted model remains faithful to the original data.
+  This term measures the Residual Sum of Squares (RSS) between the raw observations $y_{s,t}$ and the estimated spatio-temporal coefficients $\beta_{s,t}$, ensuring that the fitted model remains faithful to the original data.
 
--   **Spatial Penalty Term (**$\lambda_1 \sum \sum \vert{}\beta_{s,t} - \beta_{s',t}\vert{}$):
+- **Spatial Penalty Term (**$\lambda_1 \sum \sum \vert{}\beta_{s,t} - \beta_{s',t}\vert{}$):
 
-    Controlled by the tuning parameter $\lambda_1 \ge 0$, this component computes the $L_1$-norm of the differences between neighboring pixels. Here, $\mathcal{E}$ denotes the set of spatial edges (adjacent pixel pairs on the 2D grid). This encourages spatial piece-wise constancy, grouping neighboring pixels with similar characteristics into homogeneous spatial regions for any given time step $t$.
+  Controlled by the tuning parameter $\lambda_1 \ge 0$, this component computes the $L_1$-norm of the differences between neighboring pixels. Here, $\mathcal{E}$ denotes the set of spatial edges (adjacent pixel pairs on the 2D grid). This encourages spatial piece-wise constancy, grouping neighboring pixels with similar characteristics into homogeneous spatial regions for any given time step $t$.
 
--   **Temporal Penalty Term (**$\lambda_2 \sum \sum \vert{}\beta_{s,t} - \beta_{s,t+1}\vert{}$):
+- **Temporal Penalty Term (**$\lambda_2 \sum \sum \vert{}\beta_{s,t} - \beta_{s,t+1}\vert{}$):
 
-    Controlled by the tuning parameter $\lambda_2 \ge 0$, this component acts as a 0-th order trend filter over time. It penalizes abrupt changes between consecutive time steps for each individual pixel $s$, enforcing a piece-wise constant temporal trajectory (step-like behavior).
+  Controlled by the tuning parameter $\lambda_2 \ge 0$, this component acts as a 0-th order trend filter over time. It penalizes abrupt changes between consecutive time steps for each individual pixel $s$, enforcing a piece-wise constant temporal trajectory (step-like behavior).
 
 Solved via ADMM (Alternating Direction Method of Multipliers) - 2 independent lambdas, no path algorithm, sparse Cholesky factorized once and reused across iterations)
 
@@ -450,14 +449,123 @@ admm_fusedlasso3d <- function(y, D_space, D_time,
 }
 ```
 
+## Lambda grid search (BIC-based)
+
+`build_lambda_grid()` = Log-spaced grid of lambda values, denser near zero (absolute gaps shrink automatically at the low end under log spacing), with 0 included explicitly as the no-penalty case.
+
+```{r}
+build_lambda_grid <- function(min_val = 1e-3, max_val = 5, n = 15) {
+  c(0, exp(seq(log(min_val), log(max_val), length.out = n)))
+}
+```
+
+`estimate_sigma2()` = Global noise variance estimate, extending the Rice-type estimator used in the 1D case ($\text{Var(diff)}=2\times\sigma^2$ under slowly-varying signal) to both spatial and temporal first differences of the raw observed data.
+
+```{r}
+estimate_sigma2 <- function(y, D_space, D_time) {
+  diffs <- c(as.numeric(D_space %*% y), as.numeric(D_time %*% y))
+  sig2 <- mean(diffs^2) / 2
+  if (sig2 <= 0) sig2 <- 1e-6
+  sig2
+}
+```
+
+`compute_df()` = Degrees of freedom estimate: number of connected components of the pixel graph after contracting edges that are fused (estimated difference equal to zero). z1/z2 come from the ADMM fit, and are EXACTLY zero at fused edges due to the soft-threshold step.
+
+```{r}
+compute_df <- function(z1, z2, D_space, D_time, n, tol = 1e-8) {
+  fused_space <- which(abs(z1) < tol)
+  fused_time  <- which(abs(z2) < tol)
+  
+  edges_space <- summary(D_space)[summary(D_space)$i %in% fused_space, ]
+  edges_time  <- summary(D_time)[summary(D_time)$i %in% fused_time, ]
+  
+  el_space <- do.call(rbind, split(edges_space$j, edges_space$i))
+  el_time  <- do.call(rbind, split(edges_time$j,  edges_time$i))
+  el <- rbind(el_space, el_time)
+  
+  g <- make_empty_graph(n = n, directed = FALSE)
+  if (nrow(el) > 0) g <- add_edges(g, as.vector(t(el)))
+  
+  components(g)$no
+}
+```
+
+`grid_search_lambda()` = Fits the ADMM model over a grid of (lambda1, lambda2) combinations, with warm start (each fit initialized from the previous grid point's solution) to speed up convergence across the grid.
+
+```{r}
+grid_search_lambda <- function(y, D_space, D_time,
+                               lambda1_grid, lambda2_grid,
+                               rho = 1, max_iter = 300, verbose = FALSE) {
+  
+  n <- length(y)
+  sigma2_est <- estimate_sigma2(y, D_space, D_time)
+  
+  results <- data.frame(lambda1 = numeric(), lambda2 = numeric(),
+                        rss = numeric(), df = numeric(), bic = numeric())
+  
+  warm_beta <- NULL
+  
+  for (l1 in lambda1_grid) {
+    for (l2 in lambda2_grid) {
+      
+      fit <- admm_fusedlasso3d(
+        y = y, D_space = D_space, D_time = D_time,
+        lambda1 = l1, lambda2 = l2,
+        rho = rho, max_iter = max_iter, verbose = verbose
+      )
+      
+      rss <- sum((y - fit$beta)^2)
+      df  <- compute_df(fit$z1, fit$z2, D_space, D_time, n)
+      bic <- (rss / sigma2_est) + df * log(n)
+      
+      results <- rbind(results, data.frame(lambda1 = l1, lambda2 = l2,
+                                           rss = rss, df = df, bic = bic))
+      
+      warm_beta <- fit$beta   # not currently reused as init, see note below
+    }
+  }
+  
+  best_row <- results[which.min(results$bic), ]
+  list(results = results, best = best_row, sigma2_est = sigma2_est)
+}
+```
+
+### Run the grid search on the real Kampala data
+
+```{r}
+## Run on the real Kampala data
+y <- as.vector(Y)   # from terra::values(r_stack), part 1
+
+lambda1_grid <- build_lambda_grid(min_val = 1e-3, max_val = 5, n = 15)
+lambda2_grid <- build_lambda_grid(min_val = 1e-3, max_val = 5, n = 15)
+
+grid_out <- grid_search_lambda(
+  y = y, D_space = D_space, D_time = D_time,
+  lambda1_grid = lambda1_grid, lambda2_grid = lambda2_grid
+)
+
+cat(sprintf("Best lambda1 (spatial) = %.4f, lambda2 (temporal) = %.4f, BIC = %.2f\n",
+            grid_out$best$lambda1, grid_out$best$lambda2, grid_out$best$bic))
+
+## Heatmap of BIC over the grid
+ggplot(grid_out$results, aes(x = lambda1, y = lambda2, fill = bic)) +
+  geom_tile() +
+  scale_x_log10() +
+  scale_y_log10() +
+  scale_fill_viridis_c() +
+  labs(title = "BIC over the (lambda1, lambda2) grid",
+       x = "lambda1 (spatial)", y = "lambda2 (temporal)")
+```
+
 ```{r}
 ## Run on the real Kampala data
 y <- as.vector(Y)   # from terra::values(r_stack), part 1
 
 fit <- admm_fusedlasso3d(
   y = y, D_space = D_space, D_time = D_time,
-  lambda1 = 0.5,    # spatial fusion strength
-  lambda2 = 0.2,    # temporal fusion strength
+  lambda1 = grid_out$best$lambda1,    # spatial fusion strength
+  lambda2 = grid_out$best$lambda2,    # temporal fusion strength
   rho = 1
 )
 
