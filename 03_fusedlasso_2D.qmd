@@ -1174,11 +1174,12 @@ for (f in saved_files) {
 }
 ```
 
-## 3. Optimal Regularization Selection via Spatial Lag-K BIC
+## 3. Optimal Regularization Selection via Second-Order Difference BIC
 
 ```{r}
-# Initialize a list to store the BIC results for each file
+# Initialize lists to store the BIC results and optimal lambdas for each file
 bic_results <- list()
+lambda_results <- list()
 
 for (f in files_to_process) {
   
@@ -1195,28 +1196,6 @@ for (f in files_to_process) {
   nrow_k <- terra::nrow(r_kampala_square)
   ncol_k <- terra::ncol(r_kampala_square)
   
-  # Extract the original data matrix from the raster object
-  mat <- terra::as.matrix(r_kampala_square, wide = TRUE)
-  
-  # Configure Autocorrelation Function (ACF) parameters
-  max_lag <- 10
-  acf_rows <- matrix(0, nrow = nrow(mat), ncol = max_lag + 1)
-  
-  # Compute row-by-row ACF to isolate local pixel behavior
-  for(i in 1:nrow(mat)) {
-    acf_rows[i, ] <- acf(mat[i, ], lag.max = max_lag, plot = FALSE)$acf
-  }
-  acf_mean_horizontal <- colMeans(acf_rows)
-  
-  # Define the critical threshold for local decorrelation
-  decorrelation_threshold <- 0.20
-  
-  # Extract the optimal lag dropping below the threshold (excluding lag 0)
-  optimal_step <- which(acf_mean_horizontal[-1] < decorrelation_threshold)[1]
-  
-  # Automatic fallback if no lag drops below the specified threshold
-  if (is.na(optimal_step)) optimal_step <- 3
-  
   # Data Preparation for BIC evaluation
   y_vec <- as.numeric(v_kla_clean)
   n <- length(y_vec)
@@ -1226,21 +1205,28 @@ for (f in files_to_process) {
   rss <- colSums((beta_mat - y_vec)^2)
   df_vec <- fit$df
   
-  # Reshape Original Data Vector to 2D Spatial Grid
+  # 1. Reshape Original Data Vector to 2D Spatial Grid
   mat_grid <- matrix(y_vec, nrow = nrow_k, ncol = ncol_k, byrow = TRUE)
   
-  # Estimate Error Variance (Sigma^2) via Spatial Lag-K Neumann Estimator
-  diff_h <- mat_grid[, -(1:optimal_step), drop = FALSE] - mat_grid[, -((ncol(mat_grid) - (optimal_step - 1)):ncol(mat_grid)), drop = FALSE]
-  diff_v <- mat_grid[-(1:optimal_step), , drop = FALSE] - mat_grid[-((nrow(mat_grid) - (optimal_step - 1)):nrow(mat_grid)), , drop = FALSE]
+  # 2. Compute Second-Order Differences (lag = 1)
+  diff2_h <- mat_grid[, 3:ncol(mat_grid)] - 2 * mat_grid[, 2:(ncol(mat_grid)-1)] + mat_grid[, 1:(ncol(mat_grid)-2)]
+  diff2_v <- mat_grid[3:nrow(mat_grid), ] - 2 * mat_grid[2:(nrow(mat_grid)-1), ] + mat_grid[1:(nrow(mat_grid)-2), ]
   
-  # Final Lag-K Neumann variance estimate
-  sig2_est <- (mean(diff_h^2) + mean(diff_v^2)) / 4
+  # 3. Estimate Error Variance via Second-Order Differences (scaled by 6 for rows and columns)
+  sig2_est_diff2 <- (mean(diff2_h^2) / 6) + (mean(diff2_v^2) / 6)
   
-  # Compute Sparsity-Stable BIC Score vector
-  bic_values_psbic <- (rss / sig2_est) + (df_vec * log(n))
+  # 4. Compute Sparsity-Stable BIC Score with Second-Order Variance
+  bic_values_diff2 <- (rss / sig2_est_diff2) + (df_vec * log(n))
   
-  # Save the complete vector of BIC values into the storage list
-  bic_results[[base_name]] <- bic_values_psbic
+  # 5. Identify Optimal Lambda
+  best_idx_diff2 <- which.min(bic_values_diff2)
+  lambda_opt_diff2 <- fit$lambda[best_idx_diff2]
+  
+  cat("File:", base_name, "- Optimal Lambda selected (Second-Order Differences):", lambda_opt_diff2, "\n")
+  
+  # Save the results into the storage lists
+  bic_results[[base_name]] <- bic_values_diff2
+  lambda_results[[base_name]] <- lambda_opt_diff2
 }
 ```
 
