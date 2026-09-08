@@ -1,5 +1,6 @@
 ---
 title: "3D Fused Lasso"
+subtitle: "Spatio-Temporal Change Detection of Nighttime Lights"
 format: pdf
 editor: visual
 ---
@@ -648,4 +649,150 @@ ggplot(grid_out_refined$results[grid_out_refined$results$lambda1 > 0 & grid_out_
   theme(
     plot.caption = element_text(color = "red", hjust = 1, face = "italic")
   )
+```
+
+## 4. Final Model Fit and Reconstruction of the Space-Time Signal
+
+```{r}
+cat(sprintf("Coarse:  lambda1 = %.5f, lambda2 = %.5f, BIC = %.2f\n",
+            grid_out$best$lambda1, grid_out$best$lambda2, grid_out$best$bic))
+cat(sprintf("Refined: lambda1 = %.5f, lambda2 = %.5f, BIC = %.2f\n",
+            grid_out_refined$best$lambda1, grid_out_refined$best$lambda2,
+            grid_out_refined$best$bic))
+```
+
+```{r}
+## Run on the real Kampala data, using the optimal (lambda1, lambda2) found via the BIC grid search
+y <- as.vector(Y)   # from terra::values(r_stack), part 1
+
+rho <- 1
+ops <- prepare_admm_operators(D_space, D_time, n = length(y), rho = rho)
+
+fit <- admm_fusedlasso3d(
+  y = y, ops = ops,
+  lambda1 = grid_out_refined$best$lambda1,    # spatial fusion strength
+  lambda2 = grid_out_refined$best$lambda2,    # temporal fusion strength
+  max_iter = 500,
+  verbose = TRUE
+)
+
+## Reconstruct the estimated space-time cube
+beta_array <- array(fit$beta, dim = c(n_cells, T_layers))
+
+r_smoothed <- r_stack          # same geographic template
+values(r_smoothed) <- beta_array
+names(r_smoothed) <- names(r_stack)
+
+## Convergence diagnostic
+plot(fit$history$iter, fit$history$r_norm, type = "l", log = "y",
+     xlab = "iteration", ylab = "primal residual (log scale)")
+```
+
+### Spatio-Temporal Comparative Visualization: Original vs. 3D Fused Lasso Estimate
+
+```{r}
+# Define and create the model-specific subfolder within the main plots directory
+fused_lasso_plots_folder <- file.path(plots_output_folder, "FusedLasso3D")
+
+if (!dir.exists(fused_lasso_plots_folder)) {
+  dir.create(fused_lasso_plots_folder)
+}
+```
+
+```{r}
+for (t in seq_len(T_layers)) {
+  
+  # Original and smoothed raster for this quarter (both already in memory,
+  # no need to reload from file or look up a per-quarter fit object)
+  r_original <- r_stack[[t]]
+  r_smooth   <- r_smoothed[[t]]
+  
+  # Scale limits computed from the original data for this quarter
+  v_clean <- as.numeric(terra::values(r_original))
+  min_val <- min(v_clean, na.rm = TRUE)
+  max_val <- max(v_clean, na.rm = TRUE)
+  
+  # Quarter label comes from the layer name (e.g. "2013 Q1"), set in Part 1
+  quarter_label <- names(r_stack)[t]
+  parts <- strsplit(quarter_label, " ")[[1]]
+  year    <- parts[1]
+  quarter <- parts[2]
+  city    <- "Kampala"
+  
+  bbox <- sf::st_bbox(r_original)
+  x_range <- bbox["xmax"] - bbox["xmin"]
+  y_range <- bbox["ymax"] - bbox["ymin"]
+  pad_x <- x_range * 0.02
+  pad_y <- y_range * 0.02
+  
+  base_style <- list(
+    scale_fill_viridis_c(
+      option = "viridis",
+      na.value = "transparent",
+      name = "log(NTL)",
+      limits = c(min_val, max_val),
+      breaks = seq(0, max_val, by = 0.5)
+    ),
+    coord_sf(
+      xlim = c(bbox["xmin"] - pad_x, bbox["xmax"] + pad_x),
+      ylim = c(bbox["ymin"] - pad_y, bbox["ymax"] + pad_y),
+      expand = FALSE
+    ),
+    scale_x_continuous(breaks = scales::pretty_breaks(n = 4)),
+    theme_minimal(),
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+      axis.text.y = element_text(angle = 90, hjust = 0.5),
+      legend.position = "right",
+      legend.key.height = unit(2, "cm"),
+      legend.title = element_text(size = 10, face = "bold", hjust = 0.5)
+    )
+  )
+  
+  # 1. Original raster plot
+  p1 <- ggplot() +
+    geom_spatraster(data = r_original) +
+    geom_sf(data = kampala_border, fill = NA, color = "blue", linewidth = 0.6) +
+    labs(title = paste0(city, " (", quarter, " ", year, ") — Original")) +
+    base_style
+  
+  # 2. Smoothed raster plot, with the single global (lambda1, lambda2) used
+  #    for the whole 3D fit (not a per-quarter value)
+  p2 <- ggplot() +
+    geom_spatraster(data = r_smooth) +
+    labs(title = bquote(bold(
+      "3D Fused Lasso (" * lambda[1] * " = " * .(round(grid_out_refined$best$lambda1, 3)) *
+        ", " * lambda[2] * " = " * .(round(grid_out_refined$best$lambda2, 3)) * ")"
+    ))) +
+    base_style
+  
+  shared_legend <- cowplot::get_legend(p1)
+  
+  p1 <- p1 + theme(legend.position = "none")
+  p2 <- p2 + theme(legend.position = "none")
+  
+  plots_combined <- cowplot::plot_grid(p1, p2, ncol = 2)
+  
+  final_grid <- cowplot::plot_grid(
+    plots_combined,
+    shared_legend,
+    ncol = 2,
+    rel_widths = c(0.90, 0.10)
+  )
+  
+  # Output filename based on the quarter label (e.g. "FusedLasso3D_2013_Q1.png")
+  file_tag <- gsub(" ", "_", quarter_label)
+  plot_output_path <- file.path(fused_lasso_plots_folder, paste0("FusedLasso3D_", file_tag, ".png"))
+  
+  ggsave(
+    filename = plot_output_path,
+    plot = final_grid,
+    width = 12,
+    height = 6,
+    dpi = 300,
+    bg = "white"
+  )
+  
+  print(final_grid)
+}
 ```
