@@ -708,9 +708,10 @@ for (t in seq_len(T_layers)) {
   r_smooth   <- r_smoothed[[t]]
   
   # Scale limits computed from the original data for this quarter
-  v_clean <- as.numeric(terra::values(r_original))
-  min_val <- min(v_clean, na.rm = TRUE)
-  max_val <- max(v_clean, na.rm = TRUE)
+  v_original <- as.numeric(terra::values(r_original))
+  v_smooth   <- as.numeric(terra::values(r_smooth))
+  min_val <- min(c(v_original, v_smooth), na.rm = TRUE)
+  max_val <- max(c(v_original, v_smooth), na.rm = TRUE)
   
   # Quarter label comes from the layer name (e.g. "2013 Q1"), set in Part 1
   quarter_label <- names(r_stack)[t]
