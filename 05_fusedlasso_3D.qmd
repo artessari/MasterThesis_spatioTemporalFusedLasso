@@ -600,9 +600,9 @@ lambda2_grid_refined <- build_lambda_grid(min_val = lambda2_bounds[1],
 
 n_cores_to_use <- parallel::detectCores() - 1
 
-grid_out <- grid_search_lambda(
+grid_out_refined <- grid_search_lambda(
   y = y, D_space = D_space, D_time = D_time,
-  lambda1_grid = lambda1_grid, lambda2_grid = lambda2_grid,
+  lambda1_grid = lambda1_grid_refined, lambda2_grid = lambda2_grid_refined,
   n_cores = n_cores_to_use
 )
 
