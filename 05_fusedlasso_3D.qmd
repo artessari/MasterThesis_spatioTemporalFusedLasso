@@ -560,23 +560,38 @@ lambda2_grid <- build_lambda_grid(min_val = 1e-3, max_val = 5, n = 15)
 
 n_cores_to_use <- parallel::detectCores() - 1
 
-grid_out <- grid_search_lambda(
-  y = y, D_space = D_space, D_time = D_time,
-  lambda1_grid = lambda1_grid, lambda2_grid = lambda2_grid,
-  n_cores = n_cores_to_use
+system.time(
+  grid_out <- grid_search_lambda(
+    y = y, D_space = D_space, D_time = D_time,
+    lambda1_grid = lambda1_grid, lambda2_grid = lambda2_grid,
+    n_cores = n_cores_to_use
+  )
 )
 
 cat(sprintf("Best lambda1 (spatial) = %.4f, lambda2 (temporal) = %.4f, BIC = %.2f\n",
             grid_out$best$lambda1, grid_out$best$lambda2, grid_out$best$bic))
+```
 
-## Heatmap of BIC over the grid
-ggplot(grid_out$results, aes(x = lambda1, y = lambda2, fill = bic)) +
+```{r}
+## Heatmap of BIC over the grid, with the optimum marked
+ggplot(grid_out$results[grid_out$results$lambda1 > 0 & grid_out$results$lambda2 > 0, ],
+       aes(x = lambda1, y = lambda2, fill = bic)) +
   geom_tile() +
-  scale_x_log10() +
-  scale_y_log10() +
-  scale_fill_viridis_c() +
-  labs(title = "BIC over the (lambda1, lambda2) grid",
-       x = "lambda1 (spatial)", y = "lambda2 (temporal)")
+  geom_point(data = grid_out$best, aes(x = lambda1, y = lambda2),
+             inherit.aes = FALSE, shape = 4, color = "red", size = 4, stroke = 1.5) +
+  scale_x_log10(expand = c(0, 0)) +
+  scale_y_log10(expand = c(0, 0)) +
+  scale_fill_viridis_c(option = "cividis") +
+  labs(
+    title = bquote("BIC over the (" * lambda[1] * ", " * lambda[2] * ") grid"),
+    x = bquote(lambda[1] ~ "(spatial)"),
+    y = bquote(lambda[2] ~ "(temporal)"),
+    caption = "Red cross (X) indicates the optimal values"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.caption = element_text(color = "red", hjust = 1, face = "italic") 
+  )
 ```
 
 ```{r}
@@ -600,21 +615,37 @@ lambda2_grid_refined <- build_lambda_grid(min_val = lambda2_bounds[1],
 
 n_cores_to_use <- parallel::detectCores() - 1
 
-grid_out_refined <- grid_search_lambda(
-  y = y, D_space = D_space, D_time = D_time,
-  lambda1_grid = lambda1_grid_refined, lambda2_grid = lambda2_grid_refined,
-  n_cores = n_cores_to_use
+system.time(
+  grid_out_refined <- grid_search_lambda(
+    y = y, D_space = D_space, D_time = D_time,
+    lambda1_grid = lambda1_grid_refined, lambda2_grid = lambda2_grid_refined,
+    n_cores = n_cores_to_use
+  )
 )
 
 cat(sprintf("Refined: lambda1 = %.5f, lambda2 = %.5f, BIC = %.2f\n",
             grid_out_refined$best$lambda1, grid_out_refined$best$lambda2,
             grid_out_refined$best$bic))
+```
 
-ggplot(grid_out_refined$results, aes(x = lambda1, y = lambda2, fill = bic)) +
+```{r}
+## Refined Heatmap of BIC over the grid, with the optimum marked
+ggplot(grid_out_refined$results[grid_out_refined$results$lambda1 > 0 & grid_out_refined$results$lambda2 > 0, ], 
+       aes(x = lambda1, y = lambda2, fill = bic)) +
   geom_tile() +
-  scale_x_log10() +
-  scale_y_log10() +
-  scale_fill_viridis_c() +
-  labs(title = "Refined BIC search around the coarse-grid optimum",
-       x = "lambda1 (spatial)", y = "lambda2 (temporal)")
+  geom_point(data = grid_out_refined$best, aes(x = lambda1, y = lambda2),
+             inherit.aes = FALSE, shape = 4, color = "red", size = 4, stroke = 1.5) +
+  scale_x_log10(expand = c(0, 0)) +
+  scale_y_log10(expand = c(0, 0)) +
+  scale_fill_viridis_c(option = "cividis") +
+  labs(
+    title = bquote("Refined BIC search around the coarse-grid optimum (" * lambda[1] * ", " * lambda[2] * ")"),
+    x = bquote(lambda[1] ~ "(spatial)"),
+    y = bquote(lambda[2] ~ "(temporal)"),
+    caption = "Red cross (X) indicates the optimal values"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.caption = element_text(color = "red", hjust = 1, face = "italic")
+  )
 ```
