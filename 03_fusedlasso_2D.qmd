@@ -263,7 +263,8 @@ ncol_k <- terra::ncol(r_kampala_square)
 # dim1 maps to columns and dim2 maps to rows 
 # because terra extracts values row-by-row (Row-Major order)
 system.time(
-  fit <- genlasso::fusedlasso2d(y = as.numeric(v_kla_clean), dim1 = nrow_k, dim2 = ncol_k)
+  fit <- genlasso::fusedlasso2d(y = as.numeric(v_kla_clean), 
+                                dim1 = ncol_k, dim2 = nrow_k)
 )
 length(fit$lambda); min(fit$lambda); max(fit$df)
 ```
@@ -275,7 +276,7 @@ length(fit$lambda); min(fit$lambda); max(fit$df)
 ```{r}
 system.time(
   fit <- genlasso::fusedlasso2d(y = as.numeric(v_kla_clean), 
-                                dim1 = nrow_k, dim2 = ncol_k, 
+                                dim1 = ncol_k, dim2 = nrow_k, 
                                 maxsteps = 8000) # approx = TRUE
 )
 length(fit$lambda); min(fit$lambda); max(fit$df)
