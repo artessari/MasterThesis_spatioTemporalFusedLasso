@@ -64,13 +64,8 @@ files <- list.files(
 ```
 
 ```{r}
-## Select a subset of files for testing
-files_subset <- tail(files, 8)
-```
-
-```{r}
 # 1. Load raster files
-r_list <- lapply(files_subset, rast)
+r_list <- lapply(files, rast)
 
 geom_ok <- sapply(r_list[-1], function(r) compareGeom(r_list[[1]], r, stopOnError = FALSE))
 stopifnot(all(geom_ok))
@@ -81,7 +76,7 @@ stopifnot(all(geom_ok))
 r_stack <- terra::rast(r_list)
 
 # 3. Assign quarter labels to layers
-layer_names <- gsub("ntl_|_kampala\\.tif", "", basename(files_subset))
+layer_names <- gsub("ntl_|_kampala\\.tif", "", basename(files))
 names(r_stack) <- gsub("_", " ", layer_names)
 
 # 4. Extract spatial and temporal dimensions
@@ -498,15 +493,48 @@ compute_df <- function(z1, z2, edge_pairs_space, edge_pairs_time, n, tol = 1e-8)
 }
 ```
 
-`grid_search_lambda()` = Fits the ADMM model over a grid of (lambda1, lambda2) combinations. Cholesky factorization and edge topology are precomputed once; combinations can optionally be evaluated in parallel across cores. – combinations are evaluated in parallel via a PSOCK cluster (Windows-compatible)
+`setup_cluster()` = Creates a PSOCK cluster and has each worker factorize its own Cholesky decomposition ONCE, so the (potentially large) factorization is never transferred over clusterExport(). Reuse the returned cluster across multiple `grid_search_lambda()` calls to amortize this setup cost.
 
 ```{r}
+setup_cluster <- function(n_cores, D_space, D_time, n, rho) {
+  cl <- parallel::makeCluster(n_cores)
+  
+  parallel::clusterEvalQ(cl, { library(Matrix); library(igraph) })
+  parallel::clusterExport(cl,
+                          varlist = c("D_space", "D_time", "n", "rho",
+                                      "prepare_admm_operators", "admm_fusedlasso3d",
+                                      "soft_threshold", "compute_df"),
+    envir = environment())
+
+  parallel::clusterEvalQ(cl, {
+    ops <- prepare_admm_operators(D_space, D_time, n, rho)
+  })
+
+  cl
+}
+```
+
+`grid_search_lambda()` = Fits the ADMM model over a grid of (lambda1, lambda2) combinations. Edge topology is precomputed once; combinations can optionally be evaluated in parallel across cores by passing an already-prepared PSOCK cluster (see `setup_cluster()`, Windows-compatible), which amortizes Cholesky factorization and worker startup cost across multiple grid searches instead of repeating it on every call.
+
+```{r}
+# grid_search_lambda()
+# y            : observed vector, length n
+# D_space      : spatial penalty matrix (needed for sigma2/edge topology, 
+#                even when reusing an externally prepared cluster)
+# D_time       : temporal penalty matrix
+# lambda1_grid : grid of spatial fusion penalties
+# lambda2_grid : grid of temporal fusion penalties
+# cl           : optional, already-prepared cluster from setup_cluster().
+#                When supplied, the cluster is reused as-is (not created
+#                or destroyed here), so its setup cost is amortized across
+#                multiple grid_search_lambda() calls.
+# n_cores      : used only when cl is NULL, to create and destroy a
+#                cluster internally for this single call (backward-compatible)
 grid_search_lambda <- function(y, D_space, D_time,
                                lambda1_grid, lambda2_grid,
-                               rho = 1, max_iter = 300, n_cores = 1) {
+                               cl = NULL, rho = 1, max_iter = 300, n_cores = 1) {
   
   n <- length(y)
-  ops <- prepare_admm_operators(D_space, D_time, n, rho)
   sigma2_est <- estimate_sigma2(y, D_space, D_time)
   
   edge_pairs_space <- get_edge_pairs(D_space)
@@ -527,19 +555,27 @@ grid_search_lambda <- function(y, D_space, D_time,
                rss = rss, df = df, bic = bic)
   }
   
-  if (n_cores > 1) {
-    cl <- parallel::makeCluster(n_cores)
-    on.exit(parallel::stopCluster(cl), add = TRUE)
-    
-    parallel::clusterEvalQ(cl, { library(Matrix); library(igraph) })
+  if (!is.null(cl)) {
+    # Reuse an externally created and already-prepared cluster
     parallel::clusterExport(cl,
-                            varlist = c("y", "ops", "edge_pairs_space", "edge_pairs_time",
-                                        "sigma2_est", "n", "max_iter",
-                                        "admm_fusedlasso3d", "soft_threshold", "compute_df"),
+                            varlist = c("y", "edge_pairs_space", "edge_pairs_time", "sigma2_est", "max_iter"),
                             envir = environment())
     
-    results_list <- parallel::parLapply(cl, rows, fit_one)
+    results_list <- parallel::parLapplyLB(cl, rows, fit_one)
+    
+  } else if (n_cores > 1) {
+    # Backward-compatible: create and destroy a cluster internally for this call
+    cl_local <- setup_cluster(n_cores, D_space, D_time, n, rho)
+    on.exit(parallel::stopCluster(cl_local), add = TRUE)
+    
+    parallel::clusterExport(cl_local,
+                            varlist = c("y", "edge_pairs_space", "edge_pairs_time", "sigma2_est", "max_iter"),
+                            envir = environment())
+    
+    results_list <- parallel::parLapplyLB(cl_local, rows, fit_one)
+    
   } else {
+    ops <- prepare_admm_operators(D_space, D_time, n, rho)
     results_list <- lapply(rows, fit_one)
   }
   
@@ -552,23 +588,50 @@ grid_search_lambda <- function(y, D_space, D_time,
 
 ### Run the grid search on the real Kampala data
 
+> **Note:** grid search results are cached in `fused_lasso_fits_folder` (`grid_out_coarse.rds`) to avoid rerunning the computationally expensive search on every render of the document. If the input data or model logic change — for example `D_space`, `D_time`, `Y`, the number of quarters, `build_lambda_grid()`, or `grid_search_lambda()` itself — the cached `.rds` file will remain the old one and be silently reloaded, with no warning that it is now outdated. In such cases, manually delete the file (or the entire `fused_lasso_fits_folder` directory) before re-running the document, to force a fresh computation.
+
 ```{r}
-## Run on the real Kampala data
+# Define and create the model-specific subfolder within the main fits directory
+fused_lasso_fits_folder <- file.path(model_output_folder, "FusedLasso3D")
+
+if (!dir.exists(fused_lasso_fits_folder)) {
+  dir.create(fused_lasso_fits_folder)
+}
+```
+
+```{r}
+## Run on the real Kampala data (or load cached result if available)
 y <- as.vector(Y)   # from terra::values(r_stack), part 1
 
 lambda1_grid <- build_lambda_grid(min_val = 1e-3, max_val = 5, n = 15)
 lambda2_grid <- build_lambda_grid(min_val = 1e-3, max_val = 5, n = 15)
 
-n_cores_to_use <- parallel::detectCores() - 1
+grid_out_path <- file.path(fused_lasso_fits_folder, "grid_out_coarse.rds")
 
-system.time(
-  grid_out <- grid_search_lambda(
-    y = y, D_space = D_space, D_time = D_time,
-    lambda1_grid = lambda1_grid, lambda2_grid = lambda2_grid,
-    n_cores = n_cores_to_use
+if (file.exists(grid_out_path)) {
+  
+  grid_out <- readRDS(grid_out_path)
+  cat("Loaded cached grid search result from disk.\n")
+  
+} else {
+  
+  n_cores_to_use <- parallel::detectCores() - 1
+  cl <- setup_cluster(n_cores_to_use, D_space, D_time, n = length(y), rho = 1)
+  
+  system.time(
+    grid_out <- grid_search_lambda(
+      y = y, D_space = D_space, D_time = D_time,
+      lambda1_grid = lambda1_grid, lambda2_grid = lambda2_grid,
+      cl = cl
+    )
   )
-)
+  
+  parallel::stopCluster(cl)
+  saveRDS(grid_out, grid_out_path)
+}
+```
 
+```{r}
 cat(sprintf("Best lambda1 (spatial) = %.4f, lambda2 (temporal) = %.4f, BIC = %.2f\n",
             grid_out$best$lambda1, grid_out$best$lambda2, grid_out$best$bic))
 ```
@@ -614,16 +677,32 @@ lambda1_grid_refined <- build_lambda_grid(min_val = lambda1_bounds[1],
 lambda2_grid_refined <- build_lambda_grid(min_val = lambda2_bounds[1],
                                           max_val = lambda2_bounds[2], n = 15)
 
-n_cores_to_use <- parallel::detectCores() - 1
+grid_out_refined_path <- file.path(fused_lasso_fits_folder, "grid_out_refined.rds")
 
-system.time(
-  grid_out_refined <- grid_search_lambda(
-    y = y, D_space = D_space, D_time = D_time,
-    lambda1_grid = lambda1_grid_refined, lambda2_grid = lambda2_grid_refined,
-    n_cores = n_cores_to_use
+if (file.exists(grid_out_refined_path)) {
+  
+  grid_out_refined <- readRDS(grid_out_refined_path)
+  cat("Loaded cached refined grid search result from disk.\n")
+  
+} else {
+  
+  n_cores_to_use <- parallel::detectCores() - 1
+  cl <- setup_cluster(n_cores_to_use, D_space, D_time, n = length(y), rho = 1)
+  
+  system.time(
+    grid_out_refined <- grid_search_lambda(
+      y = y, D_space = D_space, D_time = D_time,
+      lambda1_grid = lambda1_grid_refined, lambda2_grid = lambda2_grid_refined,
+      cl = cl
+    )
   )
-)
+  
+  parallel::stopCluster(cl)
+  saveRDS(grid_out_refined, grid_out_refined_path)
+}
+```
 
+```{r}
 cat(sprintf("Refined: lambda1 = %.5f, lambda2 = %.5f, BIC = %.2f\n",
             grid_out_refined$best$lambda1, grid_out_refined$best$lambda2,
             grid_out_refined$best$bic))
