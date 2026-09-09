@@ -943,6 +943,8 @@ for (t in seq_len(T_layers)) {
 }
 ```
 
+\newpage
+
 ## Final validation: exact fusion check on beta_final 
 
 Confirms that ADMM's asymptotic convergence gap (`Ds_beta/Dt_beta` not exactly zero on "fused" edges, as flagged during development) has been fully resolved by `snap_beta_to_clusters()`.
