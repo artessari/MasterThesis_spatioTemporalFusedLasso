@@ -1529,7 +1529,7 @@ for (f in files_to_process) {
   # 2. Generate smoothed raster plot 
   p2 <- ggplot() +
     geom_spatraster(data = r_smooth) +
-    labs(title = bquote(bold("Fused Lasso (" * lambda * " = " * .(round(selected_lambda, 3)) * ")"))) +
+    labs(title = bquote(bold("2D Fused Lasso (" * lambda * " = " * .(round(selected_lambda, 3)) * ")"))) +
     base_style
   
   shared_legend <- cowplot::get_legend(p1)
