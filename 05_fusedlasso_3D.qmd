@@ -493,6 +493,24 @@ compute_df <- function(z1, z2, edge_pairs_space, edge_pairs_time, n, tol = 1e-8)
 }
 ```
 
+`snap_beta_to_clusters()` = ADMM converges to D\*beta = z only asymptotically, so a finite number of iterations always leaves a residual gap between the two, even for edges the auxiliary variable z has already fused to zero. This function removes that gap explicitly: pixels belonging to the same fused connected component (`z == 0`) are forced to share the exact same value, using the cluster mean of beta (the least-squares-optimal constant for that group).
+
+```{r}
+snap_beta_to_clusters <- function(beta, z1, z2, edge_pairs_space, edge_pairs_time, n, tol = 1e-8) {
+  el_space <- edge_pairs_space[abs(z1) < tol, , drop = FALSE]
+  el_time  <- edge_pairs_time[abs(z2) < tol, , drop = FALSE]
+  el <- rbind(el_space, el_time)
+  
+  if (nrow(el) == 0) return(beta)   # no fusion: nothing to snap
+  
+  g <- graph_from_edgelist(el, directed = FALSE)
+  g <- add_vertices(g, n - vcount(g))
+  cluster_id <- components(g)$membership
+  
+  ave(beta, cluster_id)
+}
+```
+
 `setup_cluster()` = Creates a PSOCK cluster and has each worker factorize its own Cholesky decomposition ONCE, so the (potentially large) factorization is never transferred over clusterExport(). Reuse the returned cluster across multiple `grid_search_lambda()` calls to amortize this setup cost.
 
 ```{r}
@@ -503,13 +521,14 @@ setup_cluster <- function(n_cores, D_space, D_time, n, rho) {
   parallel::clusterExport(cl,
                           varlist = c("D_space", "D_time", "n", "rho",
                                       "prepare_admm_operators", "admm_fusedlasso3d",
-                                      "soft_threshold", "compute_df"),
-    envir = environment())
-
+                                      "soft_threshold", "compute_df",
+                                      "snap_beta_to_clusters"),
+                          envir = environment())
+  
   parallel::clusterEvalQ(cl, {
     ops <- prepare_admm_operators(D_space, D_time, n, rho)
   })
-
+  
   cl
 }
 ```
@@ -547,7 +566,10 @@ grid_search_lambda <- function(y, D_space, D_time,
     fit <- admm_fusedlasso3d(y, ops, row$lambda1, row$lambda2,
                              max_iter = max_iter, verbose = FALSE)
     
-    rss <- sum((y - fit$beta)^2)
+    beta_snapped <- snap_beta_to_clusters(fit$beta, fit$z1, fit$z2,
+                                          edge_pairs_space, edge_pairs_time, n)
+    
+    rss <- sum((y - beta_snapped)^2)
     df  <- compute_df(fit$z1, fit$z2, edge_pairs_space, edge_pairs_time, n)
     bic <- (rss / sigma2_est) + df * log(n)
     
@@ -791,8 +813,16 @@ fit <- admm_fusedlasso3d(
   verbose = TRUE
 )
 
-## Reconstruct the estimated space-time cube
-beta_array <- array(fit$beta, dim = c(n_cells, T_layers))
+## Debias: force exact fusion within connected components, removing the
+## residual gap left by ADMM's asymptotic convergence (see diagnostic above)
+edge_pairs_space <- get_edge_pairs(D_space)
+edge_pairs_time  <- get_edge_pairs(D_time)
+
+beta_final <- snap_beta_to_clusters(fit$beta, fit$z1, fit$z2,
+                                    edge_pairs_space, edge_pairs_time, n = length(y))
+
+## Reconstruct the estimated space-time cube from the debiased beta
+beta_array <- array(beta_final, dim = c(n_cells, T_layers))
 
 r_smoothed <- r_stack          # same geographic template
 values(r_smoothed) <- beta_array
@@ -911,4 +941,42 @@ for (t in seq_len(T_layers)) {
   
   print(final_grid)
 }
+```
+
+## Final validation: exact fusion check on beta_final 
+
+Confirms that ADMM's asymptotic convergence gap (`Ds_beta/Dt_beta` not exactly zero on "fused" edges, as flagged during development) has been fully resolved by `snap_beta_to_clusters()`.
+
+```{r}
+Ds_beta_raw     <- as.numeric(ops$D_s %*% fit$beta)
+Dt_beta_raw     <- as.numeric(ops$D_t %*% fit$beta)
+Ds_beta_snapped <- as.numeric(ops$D_s %*% beta_final)
+Dt_beta_snapped <- as.numeric(ops$D_t %*% beta_final)
+
+fused_space_idx <- which(fit$z1 == 0)
+fused_time_idx  <- which(fit$z2 == 0)
+
+cat("=== Fusion check: raw ADMM beta ===\n")
+cat(sprintf("Max |Ds_beta| on fused edges: %.2e\n", max(abs(Ds_beta_raw[fused_space_idx]))))
+cat(sprintf("Max |Dt_beta| on fused edges: %.2e\n", max(abs(Dt_beta_raw[fused_time_idx]))))
+
+cat("\n=== Fusion check: after snap_beta_to_clusters() ===\n")
+cat(sprintf("Max |Ds_beta| on fused edges: %.2e\n", max(abs(Ds_beta_snapped[fused_space_idx]))))
+cat(sprintf("Max |Dt_beta| on fused edges: %.2e\n", max(abs(Dt_beta_snapped[fused_time_idx]))))
+
+## Hard assertion: fusion must now be exact (up to machine precision)
+stopifnot(max(abs(Ds_beta_snapped[fused_space_idx])) < 1e-10)
+stopifnot(max(abs(Dt_beta_snapped[fused_time_idx])) < 1e-10)
+
+## Sanity check: snapping should be a small, consistent correction,
+## not a wholesale change of the fit
+mean_shift <- mean(abs(beta_final - fit$beta))
+corr <- cor(fit$beta, beta_final)
+
+cat(sprintf("\nMean |beta_final - fit$beta|: %.6f\n", mean_shift))
+cat(sprintf("Correlation(fit$beta, beta_final): %.6f\n", corr))
+
+stopifnot(corr > 0.999)   # snap should not distort the fit substantially
+
+cat("\nAll fusion consistency checks passed.\n")
 ```
