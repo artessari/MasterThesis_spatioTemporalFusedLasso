@@ -53,7 +53,7 @@ roi_sf <- readRDS("./data/gadm/gadm41_UGA_1_pk.rds")
 kampala_border <- roi_sf[roi_sf$NAME_1 == "Kampala"]
 ```
 
-## 1. Load and prep all quarters
+# 1. Load and prep all quarters
 
 ```{r}
 files <- list.files(
@@ -89,7 +89,7 @@ T_layers <- terra::nlyr(r_stack)
 Y <- terra::values(r_stack)
 ```
 
-## 2. Construction of Spatial and Temporal Penalty Matrices
+# 2. Construction of Spatial and Temporal Penalty Matrices
 
 `build_spatial_D()` builds the spatial fused-lasso penalty matrix D_space, connecting horizontal and vertical pixel neighbors WITHIN each quarter, replicated across all T_layers quarters.
 
@@ -222,7 +222,7 @@ stopifnot(all(manhattan_dist == 1))
 cat("D_space_q1: structure verified -", nrow(D_space_q1), "edges, all between valid neighbors\n")
 ```
 
-### Validation test: compare D_space (single quarter) against genlasso's own D2d construction, without running any solver
+## Validation test: compare D_space (single quarter) against genlasso's own D2d construction, without running any solver
 
 **Structural Validation of the Spatial Adjacency Matrix (D_space)**
 
@@ -322,7 +322,7 @@ stopifnot(edges_match)
 cat("D_space_q1 is confirmed equivalent to genlasso::getD2dSparse()\n")
 ```
 
-## 3. Formulation and Solution of the Spatiotemporal Fused Lasso Optimization Problem
+# 3. Formulation and Solution of the Spatiotemporal Fused Lasso Optimization Problem
 
 Idea: Capture both spatial smoothness and temporal trends simultaneously $\to$ extend standard 1D trend filtering and 2D fused lasso into a unified **3D Spatiotemporal Fused Lasso** framework
 
@@ -330,7 +330,7 @@ Given a spatio-temporal dataset where $y_{s,t}$ represents the observed value at
 
 $$\hat{\beta} = \arg\min_{\beta} \left\{ \frac{1}{2} \sum_{s=1}^{S} \sum_{t=1}^{T} (y_{s,t} - \beta_{s,t})^2 + \lambda_1 \sum_{t=1}^{T} \sum_{(s,s') \in \mathcal{E}} \vert{}\beta_{s,t} - \beta_{s',t}\vert{} + \lambda_2 \sum_{s=1}^{S} \sum_{t=1}^{T-1} \vert{}\beta_{s,t} - \beta_{s,t+1}\vert{} \right\}$$
 
-### Breakdown of the Objective Function
+## Breakdown of the Objective Function
 
 The formulation consists of three primary components:
 
@@ -446,7 +446,7 @@ admm_fusedlasso3d <- function(y, ops, lambda1, lambda2,
 }
 ```
 
-## Lambda grid search (BIC-based)
+# Lambda grid search (BIC-based)
 
 `build_lambda_grid()` = Log-spaced grid of lambda values, denser near zero (absolute gaps shrink automatically at the low end under log spacing), with 0 included explicitly as the no-penalty case.
 
@@ -586,7 +586,7 @@ grid_search_lambda <- function(y, D_space, D_time,
 }
 ```
 
-### Run the grid search on the real Kampala data
+## Run the grid search on the real Kampala data
 
 > **Note:** grid search results are cached in `fused_lasso_fits_folder` (`grid_out_coarse.rds`) to avoid rerunning the computationally expensive search on every render of the document. If the input data or model logic change — for example `D_space`, `D_time`, `Y`, the number of quarters, `build_lambda_grid()`, or `grid_search_lambda()` itself — the cached `.rds` file will remain the old one and be silently reloaded, with no warning that it is now outdated. In such cases, manually delete the file (or the entire `fused_lasso_fits_folder` directory) before re-running the document, to force a fresh computation.
 
@@ -598,6 +598,8 @@ if (!dir.exists(fused_lasso_fits_folder)) {
   dir.create(fused_lasso_fits_folder)
 }
 ```
+
+### 1. Coarse Grid
 
 ```{r}
 ## Run on the real Kampala data (or load cached result if available)
@@ -647,16 +649,34 @@ ggplot(grid_out$results[grid_out$results$lambda1 > 0 & grid_out$results$lambda2 
   scale_y_log10(expand = c(0, 0)) +
   scale_fill_viridis_c(option = "cividis") +
   labs(
-    title = bquote("BIC over the (" * lambda[1] * ", " * lambda[2] * ") grid"),
+    title = bquote(bold("BIC over the (" * lambda[1] * ", " * lambda[2] * ") grid")),
+    subtitle = bquote("Red cross (X) indicates optimal values: (" * 
+                        {lambda[1] == .(round(grid_out$best$lambda1, 3))} * ", " * 
+                        {lambda[2] == .(round(grid_out$best$lambda2, 3))} * ")"),
     x = bquote(lambda[1] ~ "(spatial)"),
-    y = bquote(lambda[2] ~ "(temporal)"),
-    caption = "Red cross (X) indicates the optimal values"
+    y = bquote(lambda[2] ~ "(temporal)")
   ) +
   theme_minimal() +
   theme(
-    plot.caption = element_text(color = "red", hjust = 1, face = "italic") 
+    plot.title = element_text(hjust = 0.5, size = 14, margin = margin(b = 4)),
+    plot.subtitle = element_text(size = 11, color = "red", face = "italic", hjust = 0.5, margin = margin(b = 10)),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10)
   )
 ```
+
+```{r}
+ggsave(
+  filename = file.path(plots_output_folder, "FusedLasso3D_lambda_grid_search_coarse.png"),
+  plot = last_plot(), 
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+```
+
+### 2. Refined Grid
 
 ```{r}
 # Find the neighboring grid values around the best point, to define
@@ -715,22 +735,38 @@ ggplot(grid_out_refined$results[grid_out_refined$results$lambda1 > 0 & grid_out_
   geom_tile() +
   geom_point(data = grid_out_refined$best, aes(x = lambda1, y = lambda2),
              inherit.aes = FALSE, shape = 4, color = "red", size = 4, stroke = 1.5) +
-  scale_x_log10(expand = c(0, 0)) +
-  scale_y_log10(expand = c(0, 0)) +
+  scale_x_log10(expand = (c(0, 0))) +
+  scale_y_log10(expand = (c(0, 0))) +
   scale_fill_viridis_c(option = "cividis") +
   labs(
-    title = bquote("Refined BIC search around the coarse-grid optimum (" * lambda[1] * ", " * lambda[2] * ")"),
+    title = bquote(bold("Refined BIC search around the coarse-grid optimum (" * lambda[1] * ", " * lambda[2] * ")")),
+    subtitle = bquote("Red cross (X) indicates optimal values: (" * 
+                        {lambda[1] == .(round(grid_out_refined$best$lambda1, 3))} * ", " * 
+                        {lambda[2] == .(round(grid_out_refined$best$lambda2, 3))} * ")"),
     x = bquote(lambda[1] ~ "(spatial)"),
-    y = bquote(lambda[2] ~ "(temporal)"),
-    caption = "Red cross (X) indicates the optimal values"
+    y = bquote(lambda[2] ~ "(temporal)")
   ) +
   theme_minimal() +
   theme(
-    plot.caption = element_text(color = "red", hjust = 1, face = "italic")
+    plot.title = element_text(hjust = 0.5, size = 14, margin = margin(b = 4)),
+    plot.subtitle = element_text(size = 11, color = "red", face = "italic", hjust = 0.5, margin = margin(b = 10)),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10)
   )
 ```
 
-## 4. Final Model Fit and Reconstruction of the Space-Time Signal
+```{r}
+ggsave(
+  filename = file.path(plots_output_folder, "FusedLasso3D_lambda_grid_search_refined.png"),
+  plot = last_plot(), 
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+```
+
+# 4. Final Model Fit and Reconstruction of the Space-Time Signal
 
 ```{r}
 cat(sprintf("Coarse:  lambda1 = %.5f, lambda2 = %.5f, BIC = %.2f\n",
@@ -767,7 +803,7 @@ plot(fit$history$iter, fit$history$r_norm, type = "l", log = "y",
      xlab = "iteration", ylab = "primal residual (log scale)")
 ```
 
-### Spatio-Temporal Comparative Visualization: Original vs. 3D Fused Lasso Estimate
+## Spatio-Temporal Comparative Visualization: Original vs. 3D Fused Lasso Estimate
 
 ```{r}
 # Define and create the model-specific subfolder within the main plots directory
