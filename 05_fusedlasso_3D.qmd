@@ -10,8 +10,8 @@ editor: visual
 #| include: false
 
 knitr::opts_chunk$set(
-  fig.width = 10,  
-  fig.height = 5,    
+  fig.width = 12,  
+  fig.height = 6,    
   fig.align = "center",
   out.width = "100%",
   dpi = 300
@@ -902,7 +902,7 @@ for (t in seq_len(T_layers)) {
     scale_fill_viridis_c(
       option = "viridis",
       na.value = "transparent",
-      name = "log(NTL)",
+      name = expression(log(NTL)),
       limits = c(min_val, max_val),
       breaks = seq(0, max_val, by = 0.5)
     ),
@@ -914,11 +914,13 @@ for (t in seq_len(T_layers)) {
     scale_x_continuous(breaks = scales::pretty_breaks(n = 4)),
     theme_minimal(),
     theme(
-      plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
-      axis.text.y = element_text(angle = 90, hjust = 0.5),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 18),
+      axis.text.x = element_text(size = 11),
+      axis.text.y = element_text(angle = 90, hjust = 0.5, size = 11),
       legend.position = "right",
       legend.key.height = unit(2, "cm"),
-      legend.title = element_text(size = 10, face = "bold", hjust = 0.5)
+      legend.title = element_text(size = 16, face = "bold", hjust = 0.5),
+      legend.text = element_text(size = 14)
     )
   )
   
