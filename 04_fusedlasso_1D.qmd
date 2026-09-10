@@ -314,7 +314,7 @@ plot_fused_lasso_bic <- function(trend_group_vector, group_name, output_folder =
   fit_i <- genlasso::trendfilter(y = y_i, ord = 0)
   
   # Extract degrees of freedom and compute the residuals matrix
-  df_vec       <- fit_i$df
+  df_vec        <- fit_i$df
   beta_path    <- as.matrix(fit_i$beta)
   residuals_mat <- sweep(beta_path, 1, y_i, "-")
   rss_vec       <- colSums(residuals_mat^2)
@@ -349,25 +349,26 @@ plot_fused_lasso_bic <- function(trend_group_vector, group_name, output_folder =
   
   # Generate the final plot structure first to check its actual x-axis limits
   p <- ggplot(df_plot, aes(x = log_lambda)) +
-    geom_line(aes(y = rss_scaled, color = "Data Fidelity (RSS / sigma^2)"), linewidth = 0.5, linetype = "longdash") +
-    geom_line(aes(y = penalty, color = "Complexity Penalty (df * log(T))"), linewidth = 0.5, linetype = "longdash") +
-    geom_line(aes(y = bic, color = "Total BIC Score"), linewidth = 0.5) +
-    geom_vline(xintercept = opt_log_lambda, color = "red", linetype = "dashed", linewidth = 0.5)
+    geom_line(aes(y = rss_scaled, color = "Data Fidelity (RSS / sigma^2)"), linewidth = 0.6, linetype = "longdash") +
+    geom_line(aes(y = penalty, color = "Complexity Penalty (df * log(T))"), linewidth = 0.6, linetype = "longdash") +
+    geom_line(aes(y = bic, color = "Total BIC Score"), linewidth = 0.6) +
+    geom_vline(xintercept = opt_log_lambda, color = "red", linetype = "dashed", linewidth = 0.6)
   
-  # Extract the structural plot build to find the exact upper boundary of the x-axis
+  # Extract the structural plot build to get precise panel limits
   plot_layout <- ggplot_build(p)$layout$panel_params[[1]]
+  x_min_limit <- plot_layout$x.range[1]
   x_max_limit <- plot_layout$x.range[2]
   
-  # Determine text position dynamically based on the visual chart space
-  text_offset <- 0.15
-  estimated_text_width <- 1.2
+  # Dynamic offset proportional to the total width of the x-axis
+  text_offset <- 0.03 * (x_max_limit - x_min_limit)
   
-  if ((opt_log_lambda + text_offset + estimated_text_width) > x_max_limit) {
+  # If optimal lambda is in the rightmost 25% of the chart, put text to the left of the bar
+  if (opt_log_lambda > (x_min_limit + 0.75 * (x_max_limit - x_min_limit))) {
     x_pos <- opt_log_lambda - text_offset
-    h_just <- 1
+    h_just <- 1  # Aligns right edge of text to x_pos (putting it on the left of the bar)
   } else {
     x_pos <- opt_log_lambda + text_offset
-    h_just <- 0
+    h_just <- 0  # Aligns left edge of text to x_pos (putting it on the right of the bar)
   }
   
   # Append the dynamic text annotation layer and the rest of the layout configurations
@@ -379,7 +380,7 @@ plot_fused_lasso_bic <- function(trend_group_vector, group_name, output_folder =
              parse = TRUE,
              color = "red", 
              hjust = h_just, 
-             size = 3.5) +
+             size = 5) +
     scale_color_manual(values = c(
       "Data Fidelity (RSS / sigma^2)" = "darkorange",
       "Complexity Penalty (df * log(T))" = "darkgreen",
@@ -396,21 +397,34 @@ plot_fused_lasso_bic <- function(trend_group_vector, group_name, output_folder =
     theme_minimal() +
     theme(
       legend.position = "bottom",
-      plot.title = element_text(face = "bold", hjust = 0.5, size = 14, margin = margin(b = 4)),
-      plot.subtitle = element_text(size = 9, color = "gray40", hjust = 0.5, margin = margin(b = 10)),
-      plot.caption = element_text(size = 8, color = "gray50", face = "italic", hjust = 0, margin = margin(t = 10))
+      plot.title = element_text(face = "bold", hjust = 0.5, size = 18, margin = margin(b = 4)),
+      plot.subtitle = element_text(size = 16, color = "gray40", hjust = 0.5, margin = margin(b = 10)),
+      axis.title = element_text(size = 14),
+      axis.text = element_text(size = 14),
+      plot.caption = element_text(size = 14, color = "gray50", face = "italic", hjust = 0, margin = margin(t = 14)),
+      legend.title = element_text(size = 14),
+      legend.text = element_text(size = 14)
     )
   
-  # Optional step to save the file automatically if a directory path is supplied
+  # Save the file
   if (!is.null(output_folder)) {
     safe_group_name <- gsub(" ", "_", group_name)
     file_name <- paste0("FusedLasso1D_BIC_path_selection_", safe_group_name, ".png")
+    file_name_pdf <- paste0("FusedLasso1D_BIC_path_selection_", safe_group_name, ".pdf")
     
     ggsave(
       filename = file.path(output_folder, file_name),
       plot = p, 
       width = 12,
-      height = 6,
+      height = 7,
+      dpi = 300,
+      bg = "white"
+    )
+    ggsave(
+      filename = file.path(pdf_folder, file_name_pdf),
+      plot = p, 
+      width = 12,
+      height = 7,
       dpi = 300,
       bg = "white"
     )
@@ -421,6 +435,9 @@ plot_fused_lasso_bic <- function(trend_group_vector, group_name, output_folder =
 ```
 
 ```{r}
+#| fig-width: 12
+#| fig-height: 7
+
 set.seed(2485) 
 plot_fused_lasso_bic(tending_increasing, "increasing", plots_output_folder)
 plot_fused_lasso_bic(tending_decreasing, "decreasing", plots_output_folder)
@@ -572,7 +589,7 @@ quarters <- names(r_smooth_stack)
 
 names(r_changes_stack) <- paste0(
   substr(quarters[1:(T_layers - 1)], nchar(quarters[1:(T_layers - 1)]) - 1, nchar(quarters[1:(T_layers - 1)])),
-  "->",
+  "→",
   substr(quarters[2:T_layers], nchar(quarters[2:T_layers]) - 1, nchar(quarters[2:T_layers]))
 )
 
@@ -590,7 +607,7 @@ quarters <- names(r_smooth_stack)  # e.g. "2012 Q1", "2012 Q2", ...
 
 names(r_changes_stack) <- paste0(
   quarters[1:(T_layers - 1)],
-  " -> ",
+  " → ",
   quarters[2:T_layers]
 )
 ```
@@ -614,11 +631,14 @@ p_change_timeline <- ggplot(city_change_ts, aes(x = t_index, y = sum)) +
   geom_text(
     data = top_peaks,
     aes(label = transition),
-    vjust = -1, size = 3, color = "firebrick", fontface = "bold"
+    vjust = -1, size = 5, color = "firebrick", fontface = "bold"
   ) +
   scale_x_continuous(
     breaks = seq(1, nrow(city_change_ts), by = 4),
     labels = city_change_ts$quarter_label[seq(1, nrow(city_change_ts), by = 4)]
+  ) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0.05, 0.15))
   ) +
   labs(
     title = "City-Wide Change Intensity Over Time",
@@ -628,15 +648,25 @@ p_change_timeline <- ggplot(city_change_ts, aes(x = t_index, y = sum)) +
   ) +
   theme_minimal() +
   theme(
-    axis.text.x = element_text(angle = 45, hjust = 1, size = 7),
-    plot.title = element_text(face = "bold", hjust = 0.5),
-    plot.subtitle = element_text(size = 9, color = "gray40", hjust = 0.5)
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 13),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 13),
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 16, color = "gray40", hjust = 0.5)
   )
 
 p_change_timeline
 
 ggsave(
   filename = file.path(plots_output_folder, "FusedLasso1D_change_timeline.png"),
+  plot = p_change_timeline,
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+ggsave(
+  filename = file.path(pdf_folder, "FusedLasso1D_change_timeline.pdf"),
   plot = p_change_timeline,
   width = 12,
   height = 6,
@@ -651,7 +681,7 @@ ggsave(
 max_abs <- max(abs(terra::values(r_changes_stack)), na.rm = TRUE)
 
 # Layer indices corresponding to the 3 peaks identified above
-peak_indices <- top_peaks$t_index
+peak_indices <- sort(top_peaks$t_index)
 
 # Spatial bounding box and padding (same style as the original vs smoothed plots)
 bbox    <- sf::st_bbox(r_changes_stack[[1]])
@@ -689,8 +719,9 @@ peak_maps <- lapply(peak_indices, function(t) {
     labs(title = names(r_changes_stack)[t]) +
     theme_minimal() +
     theme(
-      plot.title = element_text(face = "bold", hjust = 0.5, size = 10),
-      axis.text  = element_text(size = 6),
+      plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
+      axis.text.y = element_text(angle = 90, hjust = 0.5, size = 10),
+      axis.text.x = element_text(size = 10),
       axis.title = element_blank(),
       legend.position = "none"
     )
@@ -699,8 +730,10 @@ peak_maps <- lapply(peak_indices, function(t) {
 shared_legend <- cowplot::get_legend(
   peak_maps[[1]] +
     theme(legend.position = "bottom",
-          legend.title = element_text(vjust = 1)) +
-    guides(fill = guide_colorbar(barwidth = 15, barheight = 0.6))
+          legend.title = element_text(vjust = 1, size = 14),
+          legend.text = element_text(size = 14),
+          legend.box.margin = margin(t = 15)) +
+    guides(fill = guide_colorbar(barwidth = 15, barheight = 1)) 
 )
 
 combined <- wrap_plots(peak_maps, nrow = 1)
@@ -711,8 +744,9 @@ top3_shocks_plot <- combined / shared_legend +
     title = "Spatial Distribution of the 3 Largest City-Wide Shocks",
     caption = "'x' marks pixels with exactly zero change between quarters",
     theme = theme(
-      plot.title   = element_text(face = "bold", hjust = 0.5, size = 13),
-      plot.caption = element_text(hjust = 0.5, size = 9, color = "gray40")
+      plot.title   = element_text(face = "bold", hjust = 0.5, size = 18),
+      plot.caption = element_text(hjust = 0.5, size = 14, color = "gray40", margin = margin(t = 15)),
+      axis.text = element_text(size = 13)
     )
   )
 
@@ -720,6 +754,14 @@ top3_shocks_plot
 
 ggsave(
   filename = file.path(plots_output_folder, "FusedLasso1D_top3_shocks.png"),
+  plot = top3_shocks_plot,
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+ggsave(
+  filename = file.path(pdf_folder, "FusedLasso1D_top3_shocks.pdf"),
   plot = top3_shocks_plot,
   width = 12,
   height = 6,
@@ -771,10 +813,13 @@ plot_observed_vs_fused <- function(pixel_vector, group_name, original_stack, smo
     ) +
     theme_minimal() +
     theme(
-      plot.title = element_text(face = "bold", hjust = 0.5, size = 13),
-      plot.subtitle = element_text(size = 10, color = "gray40", hjust = 0.5, margin = margin(b = 10)),
-      axis.text.x = element_text(angle = 45, hjust = 1), 
-      legend.position = "bottom"
+      plot.title = element_text(face = "bold", hjust = 0.5, size = 18),
+      plot.subtitle = element_text(size = 14, color = "gray40", hjust = 0.5, margin = margin(b = 10)),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 13), 
+      axis.text.y = element_text(size = 13),
+      axis.title = element_text(size = 14),
+      legend.position = "bottom",
+      legend.text = element_text(size = 14)
     )
   
   # Define destination file path using the group name and pixel ID, then save to disk
