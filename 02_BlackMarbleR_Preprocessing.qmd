@@ -9,8 +9,8 @@ editor: visual
 #| include: false
 
 knitr::opts_chunk$set(
-  fig.width = 10,  
-  fig.height = 5,    
+  fig.width = 12,  
+  fig.height = 6,    
   fig.align = "center",
   out.width = "100%",
   dpi = 300
@@ -428,15 +428,19 @@ p1 <- ggplot() +
   annotation_map_tile(type = "osm", zoom = 12, progress = "none") +
   geom_sf(data = kampala_sf, fill = NA, color = NA) +
   labs(
-    title = "Kampala Region - Base Map",
+    title = "Kampala Region — Base Map",
     subtitle = "Real-world background via OpenStreetMap tiles",
     x = "Longitude",
     y = "Latitude"
   ) +
   theme_minimal() +
   theme(
-    plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
-    plot.subtitle = element_text(hjust = 0.5, color = "gray40", size = 10)
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 24),
+    plot.subtitle = element_text(hjust = 0.5, color = "gray40", size = 20),
+    axis.title.x = element_text(size = 18),
+    axis.title.y = element_text(size = 18),
+    axis.text.x = element_text(size = 14),
+    axis.text.y = element_text(angle = 90, hjust = 0.5, size = 14)
   )
 
 # 2. Full grid with ALL pixels numbered from 1 to N
@@ -460,8 +464,12 @@ p2 <- ggplot() +
   ) +
   theme_minimal() +
   theme(
-    plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
-    plot.subtitle = element_text(hjust = 0.5, color = "gray40", size = 10),
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 24),
+    plot.subtitle = element_text(hjust = 0.5, color = "gray40", size = 20),
+    axis.title.x = element_text(size = 18),
+    axis.title.y = element_text(size = 18),
+    axis.text.x = element_text(size = 14),
+    axis.text.y = element_text(angle = 90, hjust = 0.5, size = 14),
     plot.margin = margin(0, 0, 0, 0)
   )
 
