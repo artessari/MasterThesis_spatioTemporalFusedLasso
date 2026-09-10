@@ -39,6 +39,7 @@ kampala_dir <- file.path(data_dir, "kampala")
 # Output directories 
 model_output_folder <- "output_fits"
 plots_output_folder <- "output_plots"
+pdf_folder <- file.path(plots_output_folder, "PDF_Latex_Figures")
 
 if (!dir.exists(model_output_folder)) {
   dir.create(model_output_folder)
@@ -46,6 +47,10 @@ if (!dir.exists(model_output_folder)) {
 
 if (!dir.exists(plots_output_folder)) {
   dir.create(plots_output_folder)
+}
+
+if (!dir.exists(pdf_folder)) {
+  dir.create(pdf_folder, recursive = TRUE)
 }
 
 # Load the official administrative boundaries
@@ -696,6 +701,15 @@ ggsave(
   dpi = 300,
   bg = "white"
 )
+
+ggsave(
+  filename = file.path(pdf_folder, "FusedLasso3D_lambda_grid_search_coarse.pdf"),
+  plot = last_plot(), 
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
 ```
 
 ### 2. Refined Grid
@@ -786,6 +800,15 @@ ggsave(
   dpi = 300,
   bg = "white"
 )
+
+ggsave(
+  filename = file.path(pdf_folder, "FusedLasso3D_lambda_grid_search_refined.pdf"),
+  plot = last_plot(), 
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
 ```
 
 # 4. Final Model Fit and Reconstruction of the Space-Time Signal
@@ -838,9 +861,13 @@ plot(fit$history$iter, fit$history$r_norm, type = "l", log = "y",
 ```{r}
 # Define and create the model-specific subfolder within the main plots directory
 fused_lasso_plots_folder <- file.path(plots_output_folder, "FusedLasso3D")
+pdf_fused_lasso_plots_folder <- file.path(pdf_folder, "FusedLasso3D")
 
 if (!dir.exists(fused_lasso_plots_folder)) {
   dir.create(fused_lasso_plots_folder)
+}
+if (!dir.exists(pdf_fused_lasso_plots_folder)) {
+  dir.create(pdf_fused_lasso_plots_folder)
 }
 ```
 
@@ -929,6 +956,7 @@ for (t in seq_len(T_layers)) {
   # Output filename based on the quarter label (e.g. "FusedLasso3D_2013_Q1.png")
   file_tag <- gsub(" ", "_", quarter_label)
   plot_output_path <- file.path(fused_lasso_plots_folder, paste0("FusedLasso3D_", file_tag, ".png"))
+  plot_output_path_pdf <- file.path(pdf_fused_lasso_plots_folder, paste0("FusedLasso3D_", file_tag, ".pdf"))
   
   ggsave(
     filename = plot_output_path,
@@ -938,6 +966,14 @@ for (t in seq_len(T_layers)) {
     dpi = 300,
     bg = "white"
   )
+  ggsave(
+    filename = plot_output_path_pdf,
+    plot = final_grid,
+    width = 12,
+    height = 6,
+    device = "pdf",
+    bg = "white"
+  )
   
   print(final_grid)
 }
@@ -945,7 +981,7 @@ for (t in seq_len(T_layers)) {
 
 \newpage
 
-## Final validation: exact fusion check on beta_final 
+## Final validation: exact fusion check on beta_final
 
 Confirms that ADMM's asymptotic convergence gap (`Ds_beta/Dt_beta` not exactly zero on "fused" edges, as flagged during development) has been fully resolved by `snap_beta_to_clusters()`.
 
