@@ -35,7 +35,21 @@ data_dir <- file.path(getwd(), "data")
 tif_dir <- file.path(data_dir, "blackmarble_tif")
 
 # Output directories 
+model_output_folder <- "output_fits"
 plots_output_folder <- "output_plots"
+pdf_folder <- file.path(plots_output_folder, "PDF_Latex_Figures")
+
+if (!dir.exists(model_output_folder)) {
+  dir.create(model_output_folder)
+}
+
+if (!dir.exists(plots_output_folder)) {
+  dir.create(plots_output_folder)
+}
+
+if (!dir.exists(pdf_folder)) {
+  dir.create(pdf_folder, recursive = TRUE)
+}
 ```
 
 # Raster Processing: Monthly to Quarterly Aggregation
@@ -460,6 +474,15 @@ print(p_combined)
 ```{r}
 ggsave(
   filename = file.path(plots_output_folder, "Kampala_Raster_Pixel_Index_Map.png"),
+  plot = p_combined, 
+  width = 18,
+  height = 11,
+  dpi = 300,
+  bg = "white"
+)
+
+ggsave(
+  filename = file.path(pdf_folder, "Kampala_Raster_Pixel_Index_Map.pdf"),
   plot = p_combined, 
   width = 18,
   height = 11,

@@ -37,6 +37,7 @@ kampala_dir <- file.path(data_dir, "kampala")
 # Output directories 
 model_output_folder <- "output_fits"
 plots_output_folder <- "output_plots"
+pdf_folder <- file.path(plots_output_folder, "PDF_Latex_Figures")
 
 if (!dir.exists(model_output_folder)) {
   dir.create(model_output_folder)
@@ -44,6 +45,10 @@ if (!dir.exists(model_output_folder)) {
 
 if (!dir.exists(plots_output_folder)) {
   dir.create(plots_output_folder)
+}
+
+if (!dir.exists(pdf_folder)) {
+  dir.create(pdf_folder, recursive = TRUE)
 }
 ```
 
@@ -196,6 +201,15 @@ ggplot() +
 ```{r}
 ggsave(
   filename = file.path(plots_output_folder, "Kampala_Quarterly_NTL_GridMap.png"),
+  plot = last_plot(), 
+  width = 10,
+  height = 11,
+  dpi = 300,
+  bg = "white"
+)
+
+ggsave(
+  filename = file.path(pdf_folder, "Kampala_Quarterly_NTL_GridMap.pdf"),
   plot = last_plot(), 
   width = 10,
   height = 11,
@@ -1234,7 +1248,10 @@ for (f in files_to_process) {
 ```{r}
 # Define and create the output subfolder for the BIC path selection plots
 bic_plots_output <- file.path(plots_output_folder, "FusedLasso2D_BIC_path_selection")
+pdf_bic_plots_output <- file.path(pdf_folder, "FusedLasso2D_BIC_path_selection")
+
 dir.create(bic_plots_output, showWarnings = FALSE, recursive = TRUE)
+dir.create(pdf_bic_plots_output, showWarnings = FALSE, recursive = TRUE)
 
 for (f in files_to_process) {
   
@@ -1305,6 +1322,7 @@ for (f in files_to_process) {
     )
   
   ggsave(filename = file.path(bic_plots_output, paste0("FusedLasso2D_BIC_path_selection_", time_suffix, ".png")), plot = p, width = 12, height = 6, dpi = 300)
+  ggsave(filename = file.path(pdf_bic_plots_output, paste0("FusedLasso2D_BIC_path_selection_", time_suffix, ".pdf")), plot = p, width = 12, height = 6, dpi = 300)
 }
 ```
 
@@ -1458,9 +1476,13 @@ for (f in files_to_process) {
 ```{r}
 # Define and create the model-specific subfolder within the main plots directory
 fused_lasso_plots_folder <- file.path(plots_output_folder, "FusedLasso2D")
+pdf_fused_lasso_plots_folder <- file.path(pdf_folder, "FusedLasso2D")
 
 if (!dir.exists(fused_lasso_plots_folder)) {
   dir.create(fused_lasso_plots_folder)
+}
+if (!dir.exists(pdf_fused_lasso_plots_folder)) {
+  dir.create(pdf_fused_lasso_plots_folder)
 }
 ```
 
@@ -1548,6 +1570,7 @@ for (f in files_to_process) {
   
   # Define the absolute target destination path for the output image file
   plot_output_path <- file.path(fused_lasso_plots_folder, paste0("FusedLasso2D_", base_name, ".png"))
+  plot_output_path_pdf <- file.path(pdf_fused_lasso_plots_folder, paste0("FusedLasso2D_", base_name, ".pdf"))
   
   # Export and save the combined grid layout directly to the local storage drive
   ggsave(
@@ -1556,6 +1579,14 @@ for (f in files_to_process) {
     width = 12,
     height = 6,
     dpi = 300,
+    bg = "white"
+  )
+  ggsave(
+    filename = plot_output_path_pdf,
+    plot = final_grid,
+    width = 12,
+    height = 6,
+    device = "pdf",
     bg = "white"
   )
   
