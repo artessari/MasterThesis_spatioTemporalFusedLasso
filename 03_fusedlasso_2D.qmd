@@ -10,8 +10,8 @@ editor: visual
 #| include: false
 
 knitr::opts_chunk$set(
-  fig.width = 10,  
-  fig.height = 5,    
+  fig.width = 12,  
+  fig.height = 6,    
   fig.align = "center",
   out.width = "100%",
   dpi = 300
@@ -175,7 +175,7 @@ ggplot() +
   scale_fill_viridis_c(
     option = "viridis",
     na.value = "transparent",
-    name = "log(NTL)"
+    name = expression(log(NTL)),
   ) +
   
   # Use spatial coordinates
@@ -188,7 +188,7 @@ ggplot() +
     panel.spacing = unit(1, "mm"),
     strip.placement = "outside",
     strip.background = element_blank(),
-    strip.text = element_text(size = 9, margin = margin(t = 0.5, b = 1.5, unit = "mm")),
+    strip.text = element_text(size = 10, margin = margin(t = 0.5, b = 1.5, unit = "mm")),
     legend.key.height = unit(1.2, "cm"),
     legend.title = element_text(hjust = 0.5),
     plot.title = element_text(hjust = 0.5, face = "bold"),
@@ -839,16 +839,16 @@ quarter_label <- gsub("_", " ", sub(".*_(\\d{4}_Q\\d)_.*", "\\1", raster_source)
 y_pos <- min(df_plot$bic) + 0.9 * (max(df_plot$bic) - min(df_plot$bic))
 
 ggplot(df_plot, aes(x = log_lambda, y = bic)) +
-  geom_line(color = "darkblue", linewidth = 0.5) +
-  geom_vline(xintercept = x_opt, color = "red", linetype = "dashed", linewidth = 0.5) +
+  geom_line(color = "darkblue", linewidth = 0.6) +
+  geom_vline(xintercept = x_opt, color = "red", linetype = "dashed", linewidth = 0.6) +
   annotate("text", 
-           x = x_opt + 0.05, 
+           x = x_opt + 0.2, 
            y = max(df_plot$bic) * 0.9,  
            label = list(lambda_label_psbic),
            parse = TRUE,
            color = "red", 
            hjust = 0, 
-           size = 3.5) +
+           size = 5) +
   scale_x_continuous(breaks = seq(floor(min(df_plot$log_lambda)), ceiling(max(df_plot$log_lambda)), by = 0.5)) +
   labs(
     title = paste0("Optimal Lambda Selection via Pathwise Scaled BIC — ", quarter_label),
@@ -858,10 +858,10 @@ ggplot(df_plot, aes(x = log_lambda, y = bic)) +
   ) +
   theme_minimal() +
   theme(
-    plot.title = element_text(face = "bold", hjust = 0.5, size = 14, margin = margin(b = 4)),
-    plot.subtitle = element_text(size = 9, color = "gray40", hjust = 0.5, margin = margin(b = 10)),
-    axis.title = element_text(size = 11),
-    axis.text = element_text(size = 10),
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 18, margin = margin(b = 4)),
+    plot.subtitle = element_text(size = 16, color = "gray40", hjust = 0.5, margin = margin(b = 10)),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 14),
     panel.grid.minor = element_blank()
   )
 ```
@@ -918,16 +918,16 @@ raster_source <- terra::sources(r_kampala_square)
 quarter_label <- gsub("_", " ", sub(".*_(\\d{4}_Q\\d)_.*", "\\1", raster_source))
 
 ggplot(df_plot, aes(x = log_lambda, y = bic)) +
-  geom_line(color = "darkblue", linewidth = 0.5) +
-  geom_vline(xintercept = x_opt, color = "red", linetype = "dashed", linewidth = 0.5) +
+  geom_line(color = "darkblue", linewidth = 0.6) +
+  geom_vline(xintercept = x_opt, color = "red", linetype = "dashed", linewidth = 0.6) +
   annotate("text", 
-           x = x_opt + 0.05, 
+           x = x_opt + 0.2, 
            y = max(df_plot$bic) * 0.9,  
            label = list(lambda_label_diff2),
            parse = TRUE,
            color = "red", 
            hjust = 0, 
-           size = 3.5) +
+           size = 5) +
   scale_x_continuous(breaks = seq(floor(min(df_plot$log_lambda)), ceiling(max(df_plot$log_lambda)), by = 0.5)) +
   labs(
     title = paste0("Optimal Lambda Selection via Pathwise Scaled BIC — ", quarter_label),
@@ -937,17 +937,26 @@ ggplot(df_plot, aes(x = log_lambda, y = bic)) +
   ) +
   theme_minimal() +
   theme(
-    plot.title = element_text(face = "bold", hjust = 0.5, size = 14, margin = margin(b = 4)),
-    plot.subtitle = element_text(size = 9, color = "gray40", hjust = 0.5, margin = margin(b = 10)),
-    axis.title = element_text(size = 11),
-    axis.text = element_text(size = 10),
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 18, margin = margin(b = 4)),
+    plot.subtitle = element_text(size = 16, color = "gray40", hjust = 0.5, margin = margin(b = 10)),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 14),
     panel.grid.minor = element_blank()
   )
 ```
 
 ```{r}
 ggsave(
-  filename = file.path(plots_output_folder, paste0("FusedLasso2D_BIC_path_selection_", gsub(" ", "_", quarter_label), ".png")),
+  filename = file.path(plots_output_folder, paste0("FusedLasso2D_BIC_path_selection_", gsub(" ", "_", quarter_label), "_2nd−order-diff.png")),
+  plot = last_plot(), 
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+
+ggsave(
+  filename = file.path(pdf_folder, paste0("FusedLasso2D_BIC_path_selection_", gsub(" ", "_", quarter_label), "_2nd−order-diff.pdf")),
   plot = last_plot(), 
   width = 12,
   height = 6,
@@ -1295,16 +1304,16 @@ for (f in files_to_process) {
   
   # Generation of the ggplot graphic
   p <- ggplot(df_plot, aes(x = log_lambda, y = bic)) +
-    geom_line(color = "darkblue", linewidth = 0.5) +
-    geom_vline(xintercept = x_opt, color = "red", linetype = "dashed", linewidth = 0.5) +
+    geom_line(color = "darkblue", linewidth = 0.6) +
+    geom_vline(xintercept = x_opt, color = "red", linetype = "dashed", linewidth = 0.6) +
     annotate("text", 
-             x = x_opt + 0.05, 
+             x = x_opt + 0.2, 
              y = max(df_plot$bic) * 0.9,  
              label = list(lambda_label_diff2),
              parse = TRUE,
              color = "red", 
              hjust = 0, 
-             size = 3.5) +
+             size = 5) +
     scale_x_continuous(breaks = seq(floor(min(df_plot$log_lambda)), ceiling(max(df_plot$log_lambda)), by = 0.5)) +
     labs(
       title = paste0("Optimal Lambda Selection via Pathwise Scaled BIC — ", quarter_label),
@@ -1314,10 +1323,10 @@ for (f in files_to_process) {
     ) +
     theme_minimal() +
     theme(
-      plot.title = element_text(face = "bold", hjust = 0.5, size = 14, margin = margin(b = 4)),
-      plot.subtitle = element_text(size = 9, color = "gray40", hjust = 0.5, margin = margin(b = 10)),
-      axis.title = element_text(size = 11),
-      axis.text = element_text(size = 10),
+      plot.title = element_text(face = "bold", hjust = 0.5, size = 18, margin = margin(b = 4)),
+      plot.subtitle = element_text(size = 16, color = "gray40", hjust = 0.5, margin = margin(b = 10)),
+      axis.title = element_text(size = 14),
+      axis.text = element_text(size = 14),
       panel.grid.minor = element_blank()
     )
   
@@ -1516,7 +1525,7 @@ for (f in files_to_process) {
     scale_fill_viridis_c(
       option = "viridis",
       na.value = "transparent",
-      name = "log(NTL)",
+      name = expression(log(NTL)),
       limits = c(min_val, max_val),
       breaks = seq(0, max_val, by = 0.5)
     ),
@@ -1528,11 +1537,13 @@ for (f in files_to_process) {
     scale_x_continuous(breaks = scales::pretty_breaks(n = 4)),
     theme_minimal(), 
     theme(
-      plot.title = element_text(hjust = 0.5, face = "bold", size = 12), 
-      axis.text.y = element_text(angle = 90, hjust = 0.5),
-      legend.position = "right", 
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 18),
+      axis.text.x = element_text(size = 11),
+      axis.text.y = element_text(angle = 90, hjust = 0.5, size = 11),
+      legend.position = "right",
       legend.key.height = unit(2, "cm"),
-      legend.title = element_text(size = 10, face = "bold", hjust = 0.5)
+      legend.title = element_text(size = 16, face = "bold", hjust = 0.5),
+      legend.text = element_text(size = 14)
     )
   )
   

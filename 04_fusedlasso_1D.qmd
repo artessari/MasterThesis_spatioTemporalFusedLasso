@@ -10,8 +10,8 @@ editor: visual
 #| include: false
 
 knitr::opts_chunk$set(
-  fig.width = 10,  
-  fig.height = 5,    
+  fig.width = 12,  
+  fig.height = 6,    
   fig.align = "center",
   out.width = "100%",
   dpi = 300
@@ -37,6 +37,7 @@ kampala_dir <- file.path(data_dir, "kampala")
 # Output directories 
 model_output_folder <- "output_fits"
 plots_output_folder <- "output_plots"
+pdf_folder <- file.path(plots_output_folder, "PDF_Latex_Figures")
 
 if (!dir.exists(model_output_folder)) {
   dir.create(model_output_folder)
@@ -44,6 +45,10 @@ if (!dir.exists(model_output_folder)) {
 
 if (!dir.exists(plots_output_folder)) {
   dir.create(plots_output_folder)
+}
+
+if (!dir.exists(pdf_folder)) {
+  dir.create(pdf_folder, recursive = TRUE)
 }
 
 # Load the official administrative boundaries
