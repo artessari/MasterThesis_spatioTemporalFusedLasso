@@ -1021,6 +1021,8 @@ stopifnot(corr > 0.999)   # snap should not distort the fit substantially
 cat("\nAll fusion consistency checks passed.\n")
 ```
 
+\newpage
+
 # Simulation Study
 
 ## TEST 1: Plus-Shaped Spatial Pattern with a Single Localized Temporal Change
