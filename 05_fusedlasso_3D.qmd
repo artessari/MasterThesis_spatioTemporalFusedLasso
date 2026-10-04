@@ -1020,3 +1020,201 @@ stopifnot(corr > 0.999)   # snap should not distort the fit substantially
 
 cat("\nAll fusion consistency checks passed.\n")
 ```
+
+# Simulation Study
+
+## TEST 1: Plus-Shaped Spatial Pattern with a Single Localized Temporal Change
+
+Simulation: 8x8 grid, 2x2 constant blocks, 3 quarters
+
+Ground truth: a "plus" shape (center block + its 4 neighbors at an intermediate value, background elsewhere), IDENTICAL in Q1 and Q2, with a single true change in the center block at Q3 (simulating localized growth). Small iid Gaussian noise added.
+
+```{r}
+set.seed(3463)
+
+nrow_sim   <- 8
+ncol_sim   <- 8
+block_size <- 2
+n_blocks   <- nrow_sim / block_size   # 4x4 blocks
+```
+
+`expand_blocks()` = Expands a (n_blocks x n_blocks) matrix of block-level values into the full pixel grid, repeating each value over its block_size x block_size block.
+
+```{r}
+expand_blocks <- function(block_vals, block_size) {
+  block_vals[rep(1:nrow(block_vals), each = block_size),
+             rep(1:ncol(block_vals), each = block_size)]
+}
+```
+
+```{r}
+## Ground truth block values (4x4 block grid)
+background_val <- 1
+neighbor_val   <- 2
+center_val_q1q2 <- 3
+center_val_q3   <- 5   # true change: center block grows at Q3
+
+block_vals_q1q2 <- matrix(background_val, nrow = n_blocks, ncol = n_blocks)
+block_vals_q1q2[2, 2] <- center_val_q1q2
+block_vals_q1q2[1, 2] <- neighbor_val
+block_vals_q1q2[3, 2] <- neighbor_val
+block_vals_q1q2[2, 1] <- neighbor_val
+block_vals_q1q2[2, 3] <- neighbor_val
+
+block_vals_q3 <- block_vals_q1q2
+block_vals_q3[2, 2] <- center_val_q3
+
+## Expand to full 8x8 pixel grids
+truth_q1 <- expand_blocks(block_vals_q1q2, block_size)
+truth_q2 <- expand_blocks(block_vals_q1q2, block_size)   # identical to Q1
+truth_q3 <- expand_blocks(block_vals_q3,   block_size)   # center block changed
+
+## Add small iid Gaussian noise: N(0, sigma^2)
+sigma_sim <- 0.2
+
+add_noise <- function(m, sigma) m + matrix(rnorm(length(m), mean = 0, sd = sigma), nrow = nrow(m))
+
+obs_q1 <- add_noise(truth_q1, sigma_sim)
+obs_q2 <- add_noise(truth_q2, sigma_sim)
+obs_q3 <- add_noise(truth_q3, sigma_sim)
+```
+
+```{r}
+## Build as SpatRaster stacks, so they plug directly into the same 
+## build_spatial_D()/build_temporal_D() pipeline used on the real Kampala data
+r_stack_truth <- rast(list(rast(truth_q1), rast(truth_q2), rast(truth_q3)))
+names(r_stack_truth) <- c("Sim Q1", "Sim Q2", "Sim Q3")
+
+r_stack_obs <- rast(list(rast(obs_q1), rast(obs_q2), rast(obs_q3)))
+names(r_stack_obs) <- c("Sim Q1", "Sim Q2", "Sim Q3")
+```
+
+```{r}
+# Visualization: ground truth (top row) vs noisy observed (bottom row), same color scale across all six panels for a fair comparison
+zlim_sim <- range(c(values(r_stack_truth), values(r_stack_obs)), na.rm = TRUE)
+zlim_sim[2] <- zlim_sim[2] + 1e-6
+
+par(mfrow = c(2, 3))
+for (t in 1:3) {
+  plot(r_stack_truth[[t]], main = paste("Truth -", names(r_stack_truth)[t]),
+       range = zlim_sim, type = "continuous")
+}
+for (t in 1:3) {
+  plot(r_stack_obs[[t]], main = paste("Observed -", names(r_stack_obs)[t]),
+       range = zlim_sim, type = "continuous")
+}
+```
+
+```{r}
+cat(sprintf("Simulation built: %d x %d grid, %d quarters, noise sd = %.2f\n",
+            nrow_sim, ncol_sim, 3, sigma_sim))
+cat(sprintf("Block values: background = %.1f, neighbors = %.1f, center Q1/Q2 = %.1f, center Q3 = %.1f\n",
+            background_val, neighbor_val, center_val_q1q2, center_val_q3))
+```
+
+```{r}
+## Extract spatial/temporal dimensions and the observed vector,
+## exactly as done in Part 1 on the real data
+nrow_sim_k  <- terra::nrow(r_stack_obs)
+ncol_sim_k  <- terra::ncol(r_stack_obs)
+n_cells_sim <- terra::ncell(r_stack_obs)
+T_sim       <- terra::nlyr(r_stack_obs)
+
+Y_sim <- terra::values(r_stack_obs)
+y_sim <- as.vector(Y_sim)
+
+truth_vec <- as.vector(terra::values(r_stack_truth))
+
+## Build the penalty matrices, reusing the same functions as Part 2
+D_space_sim <- build_spatial_D(r_stack_obs, nrow_sim_k, ncol_sim_k, n_cells_sim, T_sim)
+D_time_sim  <- build_temporal_D(n_cells_sim, T_sim)
+```
+
+```{r}
+lambda1_grid_sim <- build_lambda_grid(min_val = 1e-4, max_val = 0.5, n = 15)
+lambda2_grid_sim <- build_lambda_grid(min_val = 1e-4, max_val = 0.5, n = 15)
+
+system.time(
+  grid_out_sim <- grid_search_lambda(
+    y = y_sim, D_space = D_space_sim, D_time = D_time_sim,
+    lambda1_grid = lambda1_grid_sim, lambda2_grid = lambda2_grid_sim,
+    n_cores = 1   # grid is tiny (8x8x3), no need for a cluster here
+  )
+)
+
+cat(sprintf("Sim best lambda1 (spatial) = %.4f, lambda2 (temporal) = %.4f, BIC = %.2f\n",
+            grid_out_sim$best$lambda1, grid_out_sim$best$lambda2, grid_out_sim$best$bic))
+```
+
+```{r}
+ggplot(grid_out_sim$results[grid_out_sim$results$lambda1 > 0 & grid_out_sim$results$lambda2 > 0, ],
+       aes(x = lambda1, y = lambda2, fill = bic)) +
+  geom_tile() +
+  geom_point(data = grid_out_sim$best, aes(x = lambda1, y = lambda2),
+             inherit.aes = FALSE, shape = 4, color = "red", size = 4, stroke = 1.5) +
+  scale_x_log10(expand = c(0, 0)) +
+  scale_y_log10(expand = c(0, 0)) +
+  scale_fill_viridis_c(option = "cividis") +
+  labs(
+    title = bquote(bold("Simulation: BIC over the (" * lambda[1] * ", " * lambda[2] * ") grid")),
+    subtitle = bquote("Red cross (X) indicates optimal values: (" *
+                        {lambda[1] == .(round(grid_out_sim$best$lambda1, 3))} * ", " *
+                        {lambda[2] == .(round(grid_out_sim$best$lambda2, 3))} * ")"),
+    x = bquote(lambda[1] ~ "(spatial)"),
+    y = bquote(lambda[2] ~ "(temporal)")
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, margin = margin(b = 4)),
+    plot.subtitle = element_text(size = 11, color = "red", face = "italic", hjust = 0.5, margin = margin(b = 10))
+  )
+```
+
+```{r}
+ops_sim <- prepare_admm_operators(D_space_sim, D_time_sim, n = length(y_sim), rho = 1)
+
+fit_sim <- admm_fusedlasso3d(
+  y = y_sim, ops = ops_sim,
+  lambda1 = grid_out_sim$best$lambda1,
+  lambda2 = grid_out_sim$best$lambda2,
+  max_iter = 500,
+  verbose = TRUE
+)
+
+edge_pairs_space_sim <- get_edge_pairs(D_space_sim)
+edge_pairs_time_sim  <- get_edge_pairs(D_time_sim)
+
+beta_sim_final <- snap_beta_to_clusters(fit_sim$beta, fit_sim$z1, fit_sim$z2,
+                                        edge_pairs_space_sim, edge_pairs_time_sim,
+                                        n = length(y_sim))
+```
+
+```{r}
+mse_obs_vs_truth  <- mean((y_sim - truth_vec)^2)
+mse_beta_vs_truth <- mean((beta_sim_final - truth_vec)^2)
+
+cat(sprintf("MSE(observed, truth): %.4f\n", mse_obs_vs_truth))
+cat(sprintf("MSE(beta_hat, truth): %.4f\n", mse_beta_vs_truth))
+cat(sprintf("Noise reduction: %.1f%%\n", 100 * (1 - mse_beta_vs_truth / mse_obs_vs_truth)))
+```
+
+```{r, fig.height=10}
+beta_array_sim <- array(beta_sim_final, dim = c(n_cells_sim, T_sim))
+r_stack_est_sim <- r_stack_obs
+values(r_stack_est_sim) <- beta_array_sim
+names(r_stack_est_sim) <- names(r_stack_obs)
+
+zlim_sim_full <- range(c(values(r_stack_truth), values(r_stack_obs), values(r_stack_est_sim)), na.rm = TRUE)
+zlim_sim_full[2] <- zlim_sim_full[2] + 1e-6
+
+par(mfrow = c(3, 3))
+for (t in 1:3) plot(r_stack_truth[[t]],   
+                    main = paste("Truth -", names(r_stack_truth)[t]),   
+                    range = zlim_sim_full, type = "continuous")
+for (t in 1:3) plot(r_stack_obs[[t]],     
+                    main = paste("Observed -", names(r_stack_obs)[t]),   
+                    range = zlim_sim_full, type = "continuous")
+for (t in 1:3) plot(r_stack_est_sim[[t]], 
+                    main = paste("Estimated -", names(r_stack_est_sim)[t]), 
+                    range = zlim_sim_full, type = "continuous")
+```
