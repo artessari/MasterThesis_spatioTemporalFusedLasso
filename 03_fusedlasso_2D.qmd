@@ -29,6 +29,7 @@ library(tidyterra)
 library(tidyverse)
 library(progress)
 library(cowplot)
+library(ggtext)
 
 # Folders
 data_dir <- file.path(getwd(), "data")
@@ -1603,4 +1604,128 @@ for (f in files_to_process) {
   
   print(final_grid)
 }
+```
+
+## 2D Fused Lasso Output Grid
+
+```{r}
+#| fig-height: 11
+
+smooth_stack <- rast(lapply(files_to_process, function(f) {
+  base_name <- tools::file_path_sans_ext(basename(f))
+  return(smoothed_rasters[[base_name]])
+}))
+
+quarter_labels <- sapply(files_to_process, function(f) {
+  base_name <- tools::file_path_sans_ext(basename(f))
+  parts <- strsplit(base_name, "_")[[1]]
+  year <- parts[2]
+  quarter <- parts[3]
+  
+  fit_name <- paste0("fit_", base_name)
+  fit <- get(fit_name, envir = .GlobalEnv)
+  current_bic <- bic_results[[base_name]]
+  selected_lambda <- fit$lambda[which.min(current_bic)]
+  
+  paste0(tools::toTitleCase(quarter), " ", year, "\n(lambda = ", round(selected_lambda, 3), ")")
+})
+
+names(smooth_stack) <- quarter_labels
+
+ggplot() +
+  geom_spatraster(data = smooth_stack) +
+  facet_wrap(~lyr, ncol = 8, strip.position = "bottom") +
+  scale_fill_viridis_c(
+    option = "viridis",
+    na.value = "transparent",
+    name = expression(log(NTL))
+  ) +
+  coord_sf(expand = FALSE) +
+  labs(title = "Kampala Nighttime Lights — 2D Fused Lasso Model Output") +
+  theme_minimal() +
+  theme(
+    panel.spacing = unit(1, "mm"),
+    strip.placement = "outside",
+    strip.background = element_blank(),
+    strip.text = element_text(size = 8, margin = margin(t = 0.5, b = 1.5, unit = "mm")),
+    legend.key.height = unit(1.2, "cm"),
+    legend.title = element_text(hjust = 0.5),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank()
+  )
+```
+
+```{r}
+#| fig-height: 11
+
+smooth_stack <- rast(lapply(files_to_process, function(f) {
+  base_name <- tools::file_path_sans_ext(basename(f))
+  return(smoothed_rasters[[base_name]])
+}))
+
+quarter_labels <- sapply(files_to_process, function(f) {
+  base_name <- tools::file_path_sans_ext(basename(f))
+  parts <- strsplit(base_name, "_")[[1]]
+  year <- parts[2]
+  quarter <- parts[3]
+  
+  fit_name <- paste0("fit_", base_name)
+  fit <- get(fit_name, envir = .GlobalEnv)
+  current_bic <- bic_results[[base_name]]
+  selected_lambda <- fit$lambda[which.min(current_bic)]
+  
+  paste0(
+    year, " ", toupper(quarter), 
+    "<br>(<span style='font-family: serif; font-style: italic;'>&lambda;</span> = ", round(selected_lambda, 3), ")"
+  )
+})
+
+names(smooth_stack) <- quarter_labels
+
+ggplot() +
+  geom_spatraster(data = smooth_stack) +
+  facet_wrap(~lyr, ncol = 8, strip.position = "bottom") +
+  scale_fill_viridis_c(
+    option = "viridis",
+    na.value = "transparent",
+    name = expression(log(NTL))
+  ) +
+  coord_sf(expand = FALSE) +
+  labs(title = "Kampala Nighttime Lights — 2D Fused Lasso Model Output") +
+  theme_minimal() +
+  theme(
+    panel.spacing = unit(1, "mm"),
+    strip.placement = "outside",
+    strip.background = element_blank(),
+    strip.text = element_markdown(size = 8, margin = margin(t = 1, b = 1.5, unit = "mm")),
+    legend.key.height = unit(1.2, "cm"),
+    legend.title = element_text(hjust = 0.5),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank()
+  )
+```
+
+```{r}
+ggsave(
+  filename = file.path(plots_output_folder, "2DFusedLasso_OutputGrid.png"),
+  plot = last_plot(), 
+  width = 10,
+  height = 11,
+  dpi = 300,
+  bg = "white"
+)
+
+ggsave(
+  filename = file.path(pdf_folder, "2DFusedLasso_OutputGrid.pdf"),
+  plot = last_plot(), 
+  width = 10,
+  height = 11,
+  dpi = 300,
+  bg = "white",
+  device = cairo_pdf
+)
 ```
