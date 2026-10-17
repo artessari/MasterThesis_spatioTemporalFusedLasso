@@ -31,6 +31,7 @@ library(progress)
 library(patchwork)
 library(Matrix)
 library(igraph)
+library(ggtext)
 
 # Folders
 data_dir <- file.path(getwd(), "data")
@@ -979,6 +980,126 @@ for (t in seq_len(T_layers)) {
   
   print(final_grid)
 }
+```
+
+## 3D Fused Lasso Output Grid
+
+```{r}
+# Function to generate a custom grid plot for the 3D Fused Lasso model
+create_custom_grid_3d <- function(years_vector, 
+                                  ncol_val = 8, 
+                                  lambda1_val = grid_out_refined$best$lambda1,
+                                  lambda2_val = grid_out_refined$best$lambda2,
+                                  plot_title = NULL) {
+  
+  # 1. Automatic title with global lambda_1 and lambda_2 rendered via ggtext if not specified
+  if (is.null(plot_title)) {
+    plot_title <- paste0(
+      "Kampala Nighttime Lights — 3D Fused Lasso Model Output<br>",
+      "<span style='font-size:12pt; font-weight:normal;'>",
+      "(<span style='font-family: serif; font-style: italic;'>&lambda;<sub>1</sub></span> = ", round(lambda1_val, 3), 
+      ", <span style='font-family: serif; font-style: italic;'>&lambda;<sub>2</sub></span> = ", round(lambda2_val, 3), ")",
+      "</span>"
+    )
+  }
+  
+  # 2. Filter layers from r_smoothed based on the user-specified years vector
+  all_layer_names <- names(r_smoothed)
+  selected_indices <- which(sapply(all_layer_names, function(lbl) {
+    year_num <- as.numeric(strsplit(lbl, " ")[[1]][1])
+    year_num %in% years_vector
+  }))
+  
+  # Subset the spatio-temporal raster stack
+  smooth_stack_subset <- r_smoothed[[selected_indices]]
+  
+  # 3. Create clean labels for each panel (e.g., "2013 Q1")
+  names(smooth_stack_subset) <- all_layer_names[selected_indices]
+  
+  # 4. Create the ggplot object maintaining the exact 2D grid aesthetics
+  p <- ggplot() +
+    geom_spatraster(data = smooth_stack_subset) +
+    facet_wrap(~lyr, ncol = ncol_val, strip.position = "bottom") +
+    scale_fill_viridis_c(
+      option = "viridis",
+      na.value = "transparent",
+      name = expression(log(NTL))
+    ) +
+    coord_sf(expand = FALSE) +
+    labs(title = plot_title) +
+    theme_minimal() +
+    theme(
+      panel.spacing = unit(1, "mm"),
+      strip.placement = "outside",
+      strip.background = element_blank(),
+      strip.text = element_markdown(size = 10, margin = margin(t = 1, b = 1.5, unit = "mm")),
+      legend.key.height = unit(1.2, "cm"),
+      legend.title = element_text(hjust = 0.5),
+      plot.title = element_markdown(hjust = 0.5, face = "bold"), # element_markdown enables HTML in title
+      axis.title = element_blank(),
+      axis.text = element_blank(),
+      axis.ticks = element_blank()
+    )
+  
+  return(p)
+}
+
+# --- Example of usage ---
+# p_3d_p1 <- create_custom_grid_3d(years_vector = 2012:2017, ncol_val = 8)
+# ggsave("plots/3DFusedLasso_OutputGrid_2012_2017.pdf", plot = p_3d_p1, width = 10, height = 11, dpi = 300, bg = "white", device = cairo_pdf)
+
+# p_3d_p2 <- create_custom_grid_3d(years_vector = 2018:2025, ncol_val = 8)
+# ggsave("plots/3DFusedLasso_OutputGrid_2018_2025.pdf", plot = p_3d_p2, width = 10, height = 11, dpi = 300, bg = "white", device = cairo_pdf)
+```
+
+```{r, fig.width=10, fig.height=5.5}
+create_custom_grid_3d(years_vector = 2012:2017)
+```
+
+```{r}
+ggsave(
+  filename = file.path(plots_output_folder, "3DFusedLasso_OutputGrid_2012_2017.png"),
+  plot = last_plot(), 
+  width = 10,
+  height = 5.5,
+  dpi = 300,
+  bg = "white"
+)
+
+ggsave(
+  filename = file.path(pdf_folder, "3DFusedLasso_OutputGrid_2012_2017.pdf"),
+  plot = last_plot(), 
+  width = 10,
+  height = 5.5,
+  dpi = 300,
+  bg = "white",
+  device = cairo_pdf
+)
+```
+
+```{r, fig.width=10, fig.height=7.2}
+create_custom_grid_3d(years_vector = 2018:2025)
+```
+
+```{r}
+ggsave(
+  filename = file.path(plots_output_folder, "3DFusedLasso_OutputGrid_2018_2025.png"),
+  plot = last_plot(), 
+  width = 10,
+  height = 7.2,
+  dpi = 300,
+  bg = "white"
+)
+
+ggsave(
+  filename = file.path(pdf_folder, "3DFusedLasso_OutputGrid_2018_2025.pdf"),
+  plot = last_plot(), 
+  width = 10,
+  height = 7.2,
+  dpi = 300,
+  bg = "white",
+  device = cairo_pdf
+)
 ```
 
 \newpage
