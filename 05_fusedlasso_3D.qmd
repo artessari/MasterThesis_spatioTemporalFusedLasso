@@ -1293,10 +1293,18 @@ cat(sprintf("MSE(observed, truth): %.4f\n", mean((y_b - truth_vec)^2)))
 cat(sprintf("MSE(beta_hat, truth): %.4f\n", mean((beta_b - truth_vec)^2)))
 ```
 
+### Monte Carlo Loop
+
 Monte Carlo loop: in each replication, fresh noise is added to the fixed truth, lambda is selected by BIC on the full grid, and the ADMM fit is snapped to clusters. Per replication we store the MSEs and the selected lambdas.
+
+In addition to the overall MSE, each replication stores the MSE of the temporal differences (Q2 - Q1 and Q3 - Q2) for both the observed data and the estimate, against the true differences.
+
+Change detection: for each transition, a pixel is flagged as "changed" if the absolute temporal difference exceeds a tolerance. Accuracy is the share of pixels where the estimated flag matches the true one; false positives (changes found where there are none) and false negatives (true changes missed) are counted separately.
 
 ```{r}
 res <- vector("list", B)
+
+tol <- 1e-6   # tolerance to flag a pixel as "changed" between two quarters
 
 system.time(
   for (b in seq_len(B)) {
@@ -1326,6 +1334,15 @@ system.time(
     # MSE of a temporal difference (layer t+1 minus layer t) against the true difference
     mse_diff <- function(M, t) mean(((M[, t + 1] - M[, t]) - (Tr_b[, t + 1] - Tr_b[, t]))^2)
     
+    # Change detection between layer t and t+1: estimated flag vs true flag, pixel by pixel
+    detect <- function(M, t) {
+      est  <- abs(M[, t + 1] - M[, t]) > tol
+      true <- abs(Tr_b[, t + 1] - Tr_b[, t]) > tol
+      c(acc = mean(est == true), tp = sum(est & true), fp = sum(est & !true), fn = sum(!est & true))
+    }
+    det12 <- detect(B_b, 1)
+    det23 <- detect(B_b, 2)
+    
     res[[b]] <- data.frame(b = b,
                            mse_obs      = mean((y_b - truth_vec)^2),
                            mse_beta     = mean((beta_b - truth_vec)^2),
@@ -1333,6 +1350,8 @@ system.time(
                            mse_beta_d12 = mse_diff(B_b, 1),
                            mse_obs_d23  = mse_diff(Y_b, 2),
                            mse_beta_d23 = mse_diff(B_b, 2),
+                           acc_d12 = det12["acc"], fp_d12 = det12["fp"],
+                           acc_d23 = det23["acc"], tp_d23 = det23["tp"], fp_d23 = det23["fp"], fn_d23 = det23["fn"],
                            lambda1      = grid_b$best$lambda1,
                            lambda2      = grid_b$best$lambda2)
   }
@@ -1392,6 +1411,8 @@ for (t in 1:3) plot(r_stack_est_show[[t]],
                     range = zlim_full, type = "continuous")
 ```
 
+### MSE
+
 Boxplots of the MSE of the temporal differences over the B replications: Q1 -\> Q2 (no true change) and Q2 -\> Q3 (true change in the center block), observed data vs fused lasso estimate.
 
 ```{r}
@@ -1409,6 +1430,12 @@ ggplot(mse_long, aes(x = transition, y = mse, fill = source)) +
        x = NULL, y = "MSE", fill = NULL) +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5, size = 14))
+```
+
+### Accuracy
+
+```{r}
+summary(res[, c("acc_d12", "fp_d12", "acc_d23", "tp_d23", "fp_d23", "fn_d23")])
 ```
 
 ## TEST 2: Multiple Independent Clusters with Distinct Temporal Trajectories
