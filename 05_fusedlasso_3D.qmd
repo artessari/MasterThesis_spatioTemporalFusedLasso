@@ -1148,17 +1148,18 @@ cat("\nAll fusion consistency checks passed.\n")
 
 ## TEST 1: Plus-Shaped Spatial Pattern with a Single Localized Temporal Change
 
-Simulation: 8x8 grid, 2x2 constant blocks, 3 quarters
+Simulation: 8x8 grid, 2x2 constant blocks, 3 quarters, B = 30 Monte Carlo replications.
 
-Ground truth: a "plus" shape (center block + its 4 neighbors at an intermediate value, background elsewhere), IDENTICAL in Q1 and Q2, with a single true change in the center block at Q3 (simulating localized growth). Small iid Gaussian noise added.
+Ground truth: a "plus" shape on the 4x4 block grid: a center block (value 3) surrounded by its 4 neighbors (value 2) over a background (value 1). The pattern is IDENTICAL in Q1 and Q2, with a single true change in the center block at Q3 (3 -\> 5, simulating localized growth). The ground truth is fixed across replications; in each replication, independent iid Gaussian noise (sd = 0.2) is added to it.
 
 ```{r}
-set.seed(3463)
-
 nrow_sim   <- 8
 ncol_sim   <- 8
 block_size <- 2
 n_blocks   <- nrow_sim / block_size   # 4x4 blocks
+
+sigma_sim  <- 0.2                     # noise sd
+B          <- 30                      # number of Monte Carlo replications
 ```
 
 `expand_blocks()` = Expands a (n_blocks x n_blocks) matrix of block-level values into the full pixel grid, repeating each value over its block_size x block_size block.
@@ -1170,10 +1171,12 @@ expand_blocks <- function(block_vals, block_size) {
 }
 ```
 
+Ground truth block values (4x4 block grid), then expanded to the full 8x8 pixel grid. The truth is deterministic and shared by all replications.
+
 ```{r}
 ## Ground truth block values (4x4 block grid)
-background_val <- 1
-neighbor_val   <- 2
+background_val  <- 1
+neighbor_val    <- 2
 center_val_q1q2 <- 3
 center_val_q3   <- 5   # true change: center block grows at Q3
 
@@ -1191,30 +1194,30 @@ block_vals_q3[2, 2] <- center_val_q3
 truth_q1 <- expand_blocks(block_vals_q1q2, block_size)
 truth_q2 <- expand_blocks(block_vals_q1q2, block_size)   # identical to Q1
 truth_q3 <- expand_blocks(block_vals_q3,   block_size)   # center block changed
-
-## Add small iid Gaussian noise: N(0, sigma^2)
-sigma_sim <- 0.2
-
-add_noise <- function(m, sigma) m + matrix(rnorm(length(m), mean = 0, sd = sigma), nrow = nrow(m))
-
-obs_q1 <- add_noise(truth_q1, sigma_sim)
-obs_q2 <- add_noise(truth_q2, sigma_sim)
-obs_q3 <- add_noise(truth_q3, sigma_sim)
 ```
 
+Build the ground truth as a SpatRaster stack, so it plugs directly into the same `build_spatial_D()` / `build_temporal_D()` pipeline used on the real Kampala data. Observed stacks are not built here: noise is generated inside each replication.
+
 ```{r}
-## Build as SpatRaster stacks, so they plug directly into the same 
-## build_spatial_D()/build_temporal_D() pipeline used on the real Kampala data
 r_stack_truth <- rast(list(rast(truth_q1), rast(truth_q2), rast(truth_q3)))
 names(r_stack_truth) <- c("Sim Q1", "Sim Q2", "Sim Q3")
-
-r_stack_obs <- rast(list(rast(obs_q1), rast(obs_q2), rast(obs_q3)))
-names(r_stack_obs) <- c("Sim Q1", "Sim Q2", "Sim Q3")
 ```
 
+Visualization: ground truth (top row) vs one example of noisy observed data (bottom row, same noise as replication b = 1), on the same color scale across all six panels for a fair comparison.
+
 ```{r}
-# Visualization: ground truth (top row) vs noisy observed (bottom row), same color scale across all six panels for a fair comparison
-zlim_sim <- range(c(values(r_stack_truth), values(r_stack_obs)), na.rm = TRUE)
+## Example of noisy data (same noise as replication b = 1), for illustration only
+truth_vec <- as.vector(terra::values(r_stack_truth))
+
+set.seed(1000 + 1)
+y_example <- truth_vec + rnorm(length(truth_vec), mean = 0, sd = sigma_sim)
+
+r_stack_example <- r_stack_truth
+values(r_stack_example) <- matrix(y_example, ncol = terra::nlyr(r_stack_truth))
+names(r_stack_example) <- names(r_stack_truth)
+
+## Same color scale across all panels
+zlim_sim <- range(c(values(r_stack_truth), values(r_stack_example)), na.rm = TRUE)
 zlim_sim[2] <- zlim_sim[2] + 1e-6
 
 par(mfrow = c(2, 3))
@@ -1223,123 +1226,189 @@ for (t in 1:3) {
        range = zlim_sim, type = "continuous")
 }
 for (t in 1:3) {
-  plot(r_stack_obs[[t]], main = paste("Observed -", names(r_stack_obs)[t]),
+  plot(r_stack_example[[t]], main = paste("Observed (example) -", names(r_stack_example)[t]),
        range = zlim_sim, type = "continuous")
 }
 ```
 
-```{r}
-cat(sprintf("Simulation built: %d x %d grid, %d quarters, noise sd = %.2f\n",
-            nrow_sim, ncol_sim, 3, sigma_sim))
-cat(sprintf("Block values: background = %.1f, neighbors = %.1f, center Q1/Q2 = %.1f, center Q3 = %.1f\n",
-            background_val, neighbor_val, center_val_q1q2, center_val_q3))
-```
+Extract the spatial/temporal dimensions and build the penalty matrices once, outside the replication loop: they depend only on the grid geometry, not on the noise. The same functions as in Part 2 (real data) are reused.
 
 ```{r}
-## Extract spatial/temporal dimensions and the observed vector,
-## exactly as done in Part 1 on the real data
-nrow_sim_k  <- terra::nrow(r_stack_obs)
-ncol_sim_k  <- terra::ncol(r_stack_obs)
-n_cells_sim <- terra::ncell(r_stack_obs)
-T_sim       <- terra::nlyr(r_stack_obs)
+nrow_sim_k  <- terra::nrow(r_stack_truth)
+ncol_sim_k  <- terra::ncol(r_stack_truth)
+n_cells_sim <- terra::ncell(r_stack_truth)
+T_sim       <- terra::nlyr(r_stack_truth)
 
-Y_sim <- terra::values(r_stack_obs)
-y_sim <- as.vector(Y_sim)
-
-truth_vec <- as.vector(terra::values(r_stack_truth))
-
-## Build the penalty matrices, reusing the same functions as Part 2
-D_space_sim <- build_spatial_D(r_stack_obs, nrow_sim_k, ncol_sim_k, n_cells_sim, T_sim)
+## Penalty matrices (built once, shared by all replications)
+D_space_sim <- build_spatial_D(r_stack_truth, nrow_sim_k, ncol_sim_k, n_cells_sim, T_sim)
 D_time_sim  <- build_temporal_D(n_cells_sim, T_sim)
+
+cat(sprintf("Simulation built: %d x %d grid, %d quarters, noise sd = %.2f, B = %d\n",
+            nrow_sim_k, ncol_sim_k, T_sim, sigma_sim, B))
+cat(sprintf("D_space: %d x %d, D_time: %d x %d\n",
+            nrow(D_space_sim), ncol(D_space_sim), nrow(D_time_sim), ncol(D_time_sim)))
 ```
 
-```{r}
-lambda1_grid_sim <- build_lambda_grid(min_val = 1e-4, max_val = 0.5, n = 15)
-lambda2_grid_sim <- build_lambda_grid(min_val = 1e-4, max_val = 0.5, n = 15)
-
-system.time(
-  grid_out_sim <- grid_search_lambda(
-    y = y_sim, D_space = D_space_sim, D_time = D_time_sim,
-    lambda1_grid = lambda1_grid_sim, lambda2_grid = lambda2_grid_sim,
-    n_cores = 1   # grid is tiny (8x8x3), no need for a cluster here
-  )
-)
-
-cat(sprintf("Sim best lambda1 (spatial) = %.4f, lambda2 (temporal) = %.4f, BIC = %.2f\n",
-            grid_out_sim$best$lambda1, grid_out_sim$best$lambda2, grid_out_sim$best$bic))
-```
+Lambda grids and edge pairs, also built once outside the replication loop. Lambda grids span 1e-4 to 1 (15 values each); the upper bound was raised from 0.5 after a dry run selected lambda2 at the edge of the grid. The edge pairs are needed by `snap_beta_to_clusters()` and depend only on the penalty matrices.
 
 ```{r}
-ggplot(grid_out_sim$results[grid_out_sim$results$lambda1 > 0 & grid_out_sim$results$lambda2 > 0, ],
-       aes(x = lambda1, y = lambda2, fill = bic)) +
-  geom_tile() +
-  geom_point(data = grid_out_sim$best, aes(x = lambda1, y = lambda2),
-             inherit.aes = FALSE, shape = 4, color = "red", size = 4, stroke = 1.5) +
-  scale_x_log10(expand = c(0, 0)) +
-  scale_y_log10(expand = c(0, 0)) +
-  scale_fill_viridis_c(option = "cividis") +
-  labs(
-    title = bquote(bold("Simulation: BIC over the (" * lambda[1] * ", " * lambda[2] * ") grid")),
-    subtitle = bquote("Red cross (X) indicates optimal values: (" *
-                        {lambda[1] == .(round(grid_out_sim$best$lambda1, 3))} * ", " *
-                        {lambda[2] == .(round(grid_out_sim$best$lambda2, 3))} * ")"),
-    x = bquote(lambda[1] ~ "(spatial)"),
-    y = bquote(lambda[2] ~ "(temporal)")
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(hjust = 0.5, size = 14, margin = margin(b = 4)),
-    plot.subtitle = element_text(size = 11, color = "red", face = "italic", hjust = 0.5, margin = margin(b = 10))
-  )
-```
+## Lambda grids (searched afresh in every replication)
+lambda1_grid_sim <- build_lambda_grid(min_val = 1e-4, max_val = 1, n = 15)
+lambda2_grid_sim <- build_lambda_grid(min_val = 1e-4, max_val = 1, n = 15)
 
-```{r}
-ops_sim <- prepare_admm_operators(D_space_sim, D_time_sim, n = length(y_sim), rho = 1)
-
-fit_sim <- admm_fusedlasso3d(
-  y = y_sim, ops = ops_sim,
-  lambda1 = grid_out_sim$best$lambda1,
-  lambda2 = grid_out_sim$best$lambda2,
-  max_iter = 500,
-  verbose = TRUE
-)
-
+## Edge pairs for the snapping step (depend only on D, not on the noise)
 edge_pairs_space_sim <- get_edge_pairs(D_space_sim)
 edge_pairs_time_sim  <- get_edge_pairs(D_time_sim)
 
-beta_sim_final <- snap_beta_to_clusters(fit_sim$beta, fit_sim$z1, fit_sim$z2,
-                                        edge_pairs_space_sim, edge_pairs_time_sim,
-                                        n = length(y_sim))
+cat(sprintf("Lambda grid: %d x %d = %d combinations per replication\n",
+            length(lambda1_grid_sim), length(lambda2_grid_sim),
+            length(lambda1_grid_sim) * length(lambda2_grid_sim)))
 ```
 
-```{r}
-mse_obs_vs_truth  <- mean((y_sim - truth_vec)^2)
-mse_beta_vs_truth <- mean((beta_sim_final - truth_vec)^2)
+Dry run on a single replication (b = 1) to check the pipeline and measure the runtime before launching all B replications.
 
-cat(sprintf("MSE(observed, truth): %.4f\n", mse_obs_vs_truth))
-cat(sprintf("MSE(beta_hat, truth): %.4f\n", mse_beta_vs_truth))
-cat(sprintf("Noise reduction: %.1f%%\n", 100 * (1 - mse_beta_vs_truth / mse_obs_vs_truth)))
+```{r}
+b <- 1
+
+system.time({
+  set.seed(1000 + b)
+  y_b <- as.vector(truth_vec + rnorm(length(truth_vec), 0, sigma_sim))
+  
+  grid_b <- grid_search_lambda(y = y_b, D_space = D_space_sim, D_time = D_time_sim,
+                               lambda1_grid = lambda1_grid_sim,
+                               lambda2_grid = lambda2_grid_sim, n_cores = 1)
+  
+  ops_b <- prepare_admm_operators(D_space_sim, D_time_sim, n = length(y_b), rho = 1)
+  fit_b <- admm_fusedlasso3d(y = y_b, ops = ops_b,
+                             lambda1 = grid_b$best$lambda1,
+                             lambda2 = grid_b$best$lambda2, max_iter = 500)
+  beta_b <- snap_beta_to_clusters(fit_b$beta, fit_b$z1, fit_b$z2,
+                                  edge_pairs_space_sim, edge_pairs_time_sim,
+                                  n = length(y_b))
+})
+
+cat(sprintf("b = %d | lambda1 = %.4f, lambda2 = %.4f, BIC = %.2f\n",
+            b, grid_b$best$lambda1, grid_b$best$lambda2, grid_b$best$bic))
+cat(sprintf("MSE(observed, truth): %.4f\n", mean((y_b - truth_vec)^2)))
+cat(sprintf("MSE(beta_hat, truth): %.4f\n", mean((beta_b - truth_vec)^2)))
+```
+
+Monte Carlo loop: in each replication, fresh noise is added to the fixed truth, lambda is selected by BIC on the full grid, and the ADMM fit is snapped to clusters. Per replication we store the MSEs and the selected lambdas.
+
+```{r}
+res <- vector("list", B)
+
+system.time(
+  for (b in seq_len(B)) {
+    # Replication-specific seed: each replication draws its own independent noise,
+    # and any single replication b can be reproduced on its own by re-running set.seed(1000 + b).
+    set.seed(1000 + b)
+    y_b <- as.vector(truth_vec + rnorm(length(truth_vec), 0, sigma_sim))
+    
+    grid_b <- grid_search_lambda(y = y_b, D_space = D_space_sim, D_time = D_time_sim,
+                                 lambda1_grid = lambda1_grid_sim,
+                                 lambda2_grid = lambda2_grid_sim, n_cores = 1)
+    
+    ops_b <- prepare_admm_operators(D_space_sim, D_time_sim, n = length(y_b), rho = 1)
+    fit_b <- admm_fusedlasso3d(y = y_b, ops = ops_b,
+                               lambda1 = grid_b$best$lambda1,
+                               lambda2 = grid_b$best$lambda2,
+                               max_iter = 500, verbose = FALSE)
+    beta_b <- snap_beta_to_clusters(fit_b$beta, fit_b$z1, fit_b$z2,
+                                    edge_pairs_space_sim, edge_pairs_time_sim,
+                                    n = length(y_b))
+    
+    # cells x quarters matrices
+    Y_b  <- matrix(y_b,        ncol = T_sim)
+    B_b  <- matrix(beta_b,     ncol = T_sim)
+    Tr_b <- matrix(truth_vec,  ncol = T_sim)
+    
+    # MSE of a temporal difference (layer t+1 minus layer t) against the true difference
+    mse_diff <- function(M, t) mean(((M[, t + 1] - M[, t]) - (Tr_b[, t + 1] - Tr_b[, t]))^2)
+    
+    res[[b]] <- data.frame(b = b,
+                           mse_obs      = mean((y_b - truth_vec)^2),
+                           mse_beta     = mean((beta_b - truth_vec)^2),
+                           mse_obs_d12  = mse_diff(Y_b, 1),
+                           mse_beta_d12 = mse_diff(B_b, 1),
+                           mse_obs_d23  = mse_diff(Y_b, 2),
+                           mse_beta_d23 = mse_diff(B_b, 2),
+                           lambda1      = grid_b$best$lambda1,
+                           lambda2      = grid_b$best$lambda2)
+  }
+)
+
+res <- do.call(rbind, res)
+head(res)
+```
+
+Visualization of a single replication: ground truth (top row), noisy observed data (middle row) and fused lasso estimate (bottom row), on the same color scale. The replication is re-fitted using the lambdas selected during the Monte Carlo loop.
+
+```{r}
+b_show <- 1
+# change to 3 to inspect the replication where the estimate is worse than the raw data
+
+## Regenerate the noise of replication b_show and refit with its selected lambdas
+set.seed(1000 + b_show)
+y_show <- as.vector(truth_vec + rnorm(length(truth_vec), 0, sigma_sim))
+
+ops_show <- prepare_admm_operators(D_space_sim, D_time_sim, n = length(y_show), rho = 1)
+fit_show <- admm_fusedlasso3d(y = y_show, ops = ops_show,
+                              lambda1 = res$lambda1[b_show],
+                              lambda2 = res$lambda2[b_show],
+                              max_iter = 500, verbose = FALSE)
+beta_show <- snap_beta_to_clusters(fit_show$beta, fit_show$z1, fit_show$z2,
+                                   edge_pairs_space_sim, edge_pairs_time_sim,
+                                   n = length(y_show))
+
+cat(sprintf("b = %d | MSE(obs) = %.4f, MSE(beta) = %.4f (from res: %.4f, %.4f)\n",
+            b_show, mean((y_show - truth_vec)^2), mean((beta_show - truth_vec)^2),
+            res$mse_obs[b_show], res$mse_beta[b_show]))
+
+## Build observed and estimated stacks
+r_stack_obs_show <- r_stack_truth
+values(r_stack_obs_show) <- matrix(y_show, ncol = T_sim)
+names(r_stack_obs_show) <- names(r_stack_truth)
+
+r_stack_est_show <- r_stack_truth
+values(r_stack_est_show) <- matrix(beta_show, ncol = T_sim)
+names(r_stack_est_show) <- names(r_stack_truth)
+
+zlim_full <- range(c(values(r_stack_truth), values(r_stack_obs_show), values(r_stack_est_show)), na.rm = TRUE)
+zlim_full[1] <- zlim_full[1] - 1e-6
+zlim_full[2] <- zlim_full[2] + 1e-6
 ```
 
 ```{r, fig.height=10}
-beta_array_sim <- array(beta_sim_final, dim = c(n_cells_sim, T_sim))
-r_stack_est_sim <- r_stack_obs
-values(r_stack_est_sim) <- beta_array_sim
-names(r_stack_est_sim) <- names(r_stack_obs)
-
-zlim_sim_full <- range(c(values(r_stack_truth), values(r_stack_obs), values(r_stack_est_sim)), na.rm = TRUE)
-zlim_sim_full[2] <- zlim_sim_full[2] + 1e-6
-
 par(mfrow = c(3, 3))
-for (t in 1:3) plot(r_stack_truth[[t]],   
-                    main = paste("Truth -", names(r_stack_truth)[t]),   
-                    range = zlim_sim_full, type = "continuous")
-for (t in 1:3) plot(r_stack_obs[[t]],     
-                    main = paste("Observed -", names(r_stack_obs)[t]),   
-                    range = zlim_sim_full, type = "continuous")
-for (t in 1:3) plot(r_stack_est_sim[[t]], 
-                    main = paste("Estimated -", names(r_stack_est_sim)[t]), 
-                    range = zlim_sim_full, type = "continuous")
+for (t in 1:3) plot(r_stack_truth[[t]],
+                    main = paste("Truth -", names(r_stack_truth)[t]),
+                    range = zlim_full, type = "continuous")
+for (t in 1:3) plot(r_stack_obs_show[[t]],
+                    main = paste("Observed -", names(r_stack_obs_show)[t]),
+                    range = zlim_full, type = "continuous")
+for (t in 1:3) plot(r_stack_est_show[[t]],
+                    main = paste("Estimated -", names(r_stack_est_show)[t]),
+                    range = zlim_full, type = "continuous")
+```
+
+Boxplots of the MSE of the temporal differences over the B replications: Q1 -\> Q2 (no true change) and Q2 -\> Q3 (true change in the center block), observed data vs fused lasso estimate.
+
+```{r}
+mse_long <- data.frame(
+  mse = c(res$mse_obs_d12, res$mse_beta_d12, res$mse_obs_d23, res$mse_beta_d23),
+  transition = rep(c("Q1 -> Q2", "Q2 -> Q3"), each = 2 * B),
+  source = rep(rep(c("Observed", "Estimated"), each = B), times = 2)
+)
+mse_long$source <- factor(mse_long$source, levels = c("Observed", "Estimated"))
+
+ggplot(mse_long, aes(x = transition, y = mse, fill = source)) +
+  geom_boxplot(position = position_dodge(width = 0.8), width = 0.7) +
+  scale_fill_viridis_d(option = "cividis", begin = 0.3, end = 0.9) +
+  labs(title = paste0("MSE of temporal differences over B=", B, " replications"),
+       x = NULL, y = "MSE", fill = NULL) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, size = 14))
 ```
 
 ## TEST 2: Multiple Independent Clusters with Distinct Temporal Trajectories
