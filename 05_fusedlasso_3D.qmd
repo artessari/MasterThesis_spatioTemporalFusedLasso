@@ -1304,7 +1304,7 @@ sum(B_chk[, 2] != B_chk[, 1])                 # strict
 sum(abs(B_chk[, 2] - B_chk[, 1]) > 1e-6)      # with tolerance
 ```
 
-## Monte Carlo Loop
+### Monte Carlo Loop
 
 In each replication, fresh Gaussian noise is added to the fixed ground truth, lambda is selected by BIC on the full grid, and the ADMM fit is snapped to clusters. For each replication we store the overall MSE, the selected lambdas, and the following metrics.
 
@@ -1558,11 +1558,6 @@ summary(res[, c("ari", "ari_q1", "ari_q2", "ari_q3")])
 ```
 
 ```{r}
-summary(res[, c("center_q1", "center_q2", "center_q3")])
-summary(res$center_q3 - res$center_q2)   # estimated jump, true value = 2
-```
-
-```{r}
 ari_long <- data.frame(
   ari   = c(res$ari, res$ari_q1, res$ari_q2, res$ari_q3),
   panel = factor(rep(c("Space-time (overall)", "Q1 (spatial)", "Q2 (spatial)", "Q3 (spatial)"),
@@ -1602,6 +1597,11 @@ ggsave(
 ### Center Block
 
 ```{r}
+summary(res[, c("center_q1", "center_q2", "center_q3")])
+summary(res$center_q3 - res$center_q2)   # estimated jump, true value = 2
+```
+
+```{r}
 # Predicted shrinkage of the center block if the cluster is recovered exactly:
 # bias = (sum of lambda x boundary edges, signed) / cluster size
 # Q3 (4 pixels): 8 spatial + 4 temporal edges, all pushing down      -> 2*l1 + l2
@@ -1623,15 +1623,18 @@ cat(sprintf("Q1/Q2: observed = %.3f, predicted = %.3f, cor = %.3f, slope = %.2f\
 
 ## TEST 2: Multiple Independent Clusters with Distinct Temporal Trajectories
 
-Three non-adjacent 2x2 blocks, placed well INSIDE the grid (away from edges/corners, to avoid confounding boundary effects with cluster-distinguishing behavior), each following a different temporal pattern: gradual growth, stable, sudden decline. Background constant everywhere else.
+Simulation: 16x16 grid, 2x2 constant blocks, 3 quarters, B = 30 Monte Carlo replications.
+
+Ground truth: three non-adjacent 2x2 blocks placed well inside the grid (away from edges and corners, to avoid confounding boundary effects with cluster-distinguishing behavior), each following a different temporal pattern over a constant background (value 1): gradual growth (cluster A: 2 -\> 3 -\> 4), stable (cluster B: 3 -\> 3 -\> 3) and sudden decline (cluster C: 4 -\> 4 -\> 2). The ground truth is fixed across replications; in each replication, independent iid Gaussian noise (sd = 0.2) is added to it.
 
 ```{r}
-set.seed(3463)
-
 nrow_sim_t2   <- 16
 ncol_sim_t2   <- 16
 block_size_t2 <- 2
 n_blocks_t2   <- nrow_sim_t2 / block_size_t2   # 8x8 blocks
+
+sigma_sim_t2  <- 0.2                           # noise sd
+B_t2          <- 30                            # number of Monte Carlo replications
 
 background_val_t2 <- 1
 ```
@@ -1647,6 +1650,7 @@ Ground truth block values per quarter (8x8 block grid)
 All three blocks sit well inside the grid (rows/cols 2-7 out of 1-8), at least 2 blocks apart from each other and from the edge.
 
 ```{r}
+## Ground truth block values per quarter (8x8 block grid)
 block_vals_t2_q1 <- matrix(background_val_t2, nrow = n_blocks_t2, ncol = n_blocks_t2)
 block_vals_t2_q1[3, 3] <- 2   # cluster A, Q1
 block_vals_t2_q1[3, 6] <- 3   # cluster B, Q1
@@ -1662,29 +1666,39 @@ block_vals_t2_q3[3, 3] <- 4   # cluster A, Q3 (further growth)
 block_vals_t2_q3[3, 6] <- 3   # cluster B, Q3 (stable)
 block_vals_t2_q3[6, 3] <- 2   # cluster C, Q3 (sudden decline)
 
-## Expand to full pixel grids
+## Expand to full 16x16 pixel grids
 truth_t2_q1 <- expand_blocks(block_vals_t2_q1, block_size_t2)
 truth_t2_q2 <- expand_blocks(block_vals_t2_q2, block_size_t2)
 truth_t2_q3 <- expand_blocks(block_vals_t2_q3, block_size_t2)
-
-## Add the same small iid Gaussian noise as Test 1
-sigma_sim_t2 <- 0.2
-
-obs_t2_q1 <- add_noise(truth_t2_q1, sigma_sim_t2)
-obs_t2_q2 <- add_noise(truth_t2_q2, sigma_sim_t2)
-obs_t2_q3 <- add_noise(truth_t2_q3, sigma_sim_t2)
 ```
 
 ```{r}
-## Build as SpatRaster stacks
+dim(truth_t2_q3)
+table(truth_t2_q3)
+```
+
+Build the ground truth as a SpatRaster stack, so it plugs directly into the same `build_spatial_D()` / `build_temporal_D()` pipeline used on the real Kampala data. Observed stacks are not built here: noise is generated inside each replication.
+
+```{r}
 r_stack_truth_t2 <- rast(list(rast(truth_t2_q1), rast(truth_t2_q2), rast(truth_t2_q3)))
 names(r_stack_truth_t2) <- c("Sim Q1", "Sim Q2", "Sim Q3")
+```
 
-r_stack_obs_t2 <- rast(list(rast(obs_t2_q1), rast(obs_t2_q2), rast(obs_t2_q3)))
-names(r_stack_obs_t2) <- c("Sim Q1", "Sim Q2", "Sim Q3")
+Visualization: ground truth (top row) vs one example of noisy observed data (bottom row, same noise as replication b = 1), on the same color scale across all six panels for a fair comparison.
 
-zlim_sim_t2 <- range(c(values(r_stack_truth_t2), values(r_stack_obs_t2)), na.rm = TRUE)
-zlim_sim_t2[1] <- zlim_sim_t2[1] - 1e-6
+```{r}
+## Example of noisy data (same noise as replication b = 1), for illustration only
+truth_vec_t2 <- as.vector(terra::values(r_stack_truth_t2))
+
+set.seed(1000 + 1)
+y_example_t2 <- truth_vec_t2 + rnorm(length(truth_vec_t2), mean = 0, sd = sigma_sim_t2)
+
+r_stack_example_t2 <- r_stack_truth_t2
+values(r_stack_example_t2) <- matrix(y_example_t2, ncol = terra::nlyr(r_stack_truth_t2))
+names(r_stack_example_t2) <- names(r_stack_truth_t2)
+
+## Same color scale across all panels
+zlim_sim_t2 <- range(c(values(r_stack_truth_t2), values(r_stack_example_t2)), na.rm = TRUE)
 zlim_sim_t2[2] <- zlim_sim_t2[2] + 1e-6
 
 par(mfrow = c(2, 3))
@@ -1693,103 +1707,489 @@ for (t in 1:3) {
        range = zlim_sim_t2, type = "continuous")
 }
 for (t in 1:3) {
-  plot(r_stack_obs_t2[[t]], main = paste("Observed -", names(r_stack_obs_t2)[t]),
+  plot(r_stack_example_t2[[t]], main = paste("Observed (example) -", names(r_stack_example_t2)[t]),
        range = zlim_sim_t2, type = "continuous")
 }
 par(mfrow = c(1, 1))
-
-cat(sprintf("Test 2 built: %d x %d grid, 3 interior clusters (growth/stable/decline), noise sd = %.2f\n",
-            nrow_sim_t2, ncol_sim_t2, sigma_sim_t2))
 ```
 
+Extract the spatial/temporal dimensions and build the penalty matrices once, outside the replication loop: they depend only on the grid geometry, not on the noise. The same functions as in Part 2 (real data) are reused.
+
 ```{r}
-nrow_sim_t2_k  <- terra::nrow(r_stack_obs_t2)
-ncol_sim_t2_k  <- terra::ncol(r_stack_obs_t2)
-n_cells_sim_t2 <- terra::ncell(r_stack_obs_t2)
-T_sim_t2       <- terra::nlyr(r_stack_obs_t2)
+nrow_sim_t2_k  <- terra::nrow(r_stack_truth_t2)
+ncol_sim_t2_k  <- terra::ncol(r_stack_truth_t2)
+n_cells_sim_t2 <- terra::ncell(r_stack_truth_t2)
+T_sim_t2       <- terra::nlyr(r_stack_truth_t2)
 
-y_t2 <- as.vector(terra::values(r_stack_obs_t2))
-truth_vec_t2 <- as.vector(terra::values(r_stack_truth_t2))
-
-D_space_t2 <- build_spatial_D(r_stack_obs_t2, nrow_sim_t2_k, ncol_sim_t2_k, n_cells_sim_t2, T_sim_t2)
+## Penalty matrices (built once, shared by all replications)
+D_space_t2 <- build_spatial_D(r_stack_truth_t2, nrow_sim_t2_k, ncol_sim_t2_k, n_cells_sim_t2, T_sim_t2)
 D_time_t2  <- build_temporal_D(n_cells_sim_t2, T_sim_t2)
 
-lambda1_grid_t2 <- build_lambda_grid(min_val = 1e-4, max_val = 0.5, n = 15)
-lambda2_grid_t2 <- build_lambda_grid(min_val = 1e-4, max_val = 0.5, n = 15)
+cat(sprintf("Simulation built: %d x %d grid, %d quarters, noise sd = %.2f, B = %d\n",
+            nrow_sim_t2_k, ncol_sim_t2_k, T_sim_t2, sigma_sim_t2, B_t2))
+cat(sprintf("D_space: %d x %d, D_time: %d x %d\n",
+            nrow(D_space_t2), ncol(D_space_t2), nrow(D_time_t2), ncol(D_time_t2)))
+```
 
-grid_out_t2 <- grid_search_lambda(
-  y = y_t2, D_space = D_space_t2, D_time = D_time_t2,
-  lambda1_grid = lambda1_grid_t2, lambda2_grid = lambda2_grid_t2,
-  n_cores = 1
-)
+Lambda grids and edge pairs, also built once outside the replication loop. Lambda grids span 1e-4 to 1 (15 values each), the same range as Test 1. The edge pairs are needed by `snap_beta_to_clusters()` and depend only on the penalty matrices.
 
-cat(sprintf("Test 2 best lambda1 = %.4f, lambda2 = %.4f\n",
-            grid_out_t2$best$lambda1, grid_out_t2$best$lambda2))
+```{r}
+## Lambda grids (searched afresh in every replication)
+lambda1_grid_t2 <- build_lambda_grid(min_val = 1e-4, max_val = 1, n = 15)
+lambda2_grid_t2 <- build_lambda_grid(min_val = 1e-4, max_val = 1, n = 15)
 
-ops_t2 <- prepare_admm_operators(D_space_t2, D_time_t2, n = length(y_t2), rho = 1)
-
-fit_t2 <- admm_fusedlasso3d(
-  y = y_t2, ops = ops_t2,
-  lambda1 = grid_out_t2$best$lambda1,
-  lambda2 = grid_out_t2$best$lambda2,
-  max_iter = 500, verbose = TRUE
-)
-
+## Edge pairs for the snapping step (depend only on D, not on the noise)
 edge_pairs_space_t2 <- get_edge_pairs(D_space_t2)
 edge_pairs_time_t2  <- get_edge_pairs(D_time_t2)
 
-beta_t2_final <- snap_beta_to_clusters(fit_t2$beta, fit_t2$z1, fit_t2$z2,
-                                       edge_pairs_space_t2, edge_pairs_time_t2,
-                                       n = length(y_t2))
+cat(sprintf("Lambda grid: %d x %d = %d combinations per replication\n",
+            length(lambda1_grid_t2), length(lambda2_grid_t2),
+            length(lambda1_grid_t2) * length(lambda2_grid_t2)))
+```
 
-mse_obs_vs_truth_t2  <- mean((y_t2 - truth_vec_t2)^2)
-mse_beta_vs_truth_t2 <- mean((beta_t2_final - truth_vec_t2)^2)
+Dry run on a single replication (b = 1) to check the pipeline and measure the runtime before launching all B replications. The grid has 4 times more pixels than Test 1, so expect a longer runtime per replication.
 
-cat(sprintf("MSE(observed, truth): %.4f\n", mse_obs_vs_truth_t2))
-cat(sprintf("MSE(beta_hat, truth): %.4f\n", mse_beta_vs_truth_t2))
-cat(sprintf("Noise reduction: %.1f%%\n", 100 * (1 - mse_beta_vs_truth_t2 / mse_obs_vs_truth_t2)))
+```{r}
+b <- 1
 
-mask_growth_px  <- expand_blocks(block_vals_t2_q1 == 2, block_size_t2)
-mask_stable_px  <- expand_blocks(block_vals_t2_q1 == 3, block_size_t2)
-mask_decline_px <- expand_blocks(block_vals_t2_q1 == 4, block_size_t2)
-
-beta_array_t2 <- array(beta_t2_final, dim = c(n_cells_sim_t2, T_sim_t2))
-
-truth_list_t2 <- list(truth_t2_q1, truth_t2_q2, truth_t2_q3)
-for (t in 1:3) {
-  b_t <- matrix(beta_array_t2[, t], nrow = nrow_sim_t2, byrow = TRUE)
-  truth_t <- truth_list_t2[[t]]
+system.time({
+  set.seed(1000 + b)
+  y_b <- as.vector(truth_vec_t2 + rnorm(length(truth_vec_t2), 0, sigma_sim_t2))
   
-  cat(sprintf("Q%d - MSE growth cluster: %.4f | MSE stable cluster: %.4f | MSE decline cluster: %.4f\n",
-              t,
-              mean((b_t[mask_growth_px]  - truth_t[mask_growth_px])^2),
-              mean((b_t[mask_stable_px]  - truth_t[mask_stable_px])^2),
-              mean((b_t[mask_decline_px] - truth_t[mask_decline_px])^2)))
+  grid_b <- grid_search_lambda(y = y_b, D_space = D_space_t2, D_time = D_time_t2,
+                               lambda1_grid = lambda1_grid_t2,
+                               lambda2_grid = lambda2_grid_t2, n_cores = 1)
+  
+  ops_b <- prepare_admm_operators(D_space_t2, D_time_t2, n = length(y_b), rho = 1)
+  fit_b <- admm_fusedlasso3d(y = y_b, ops = ops_b,
+                             lambda1 = grid_b$best$lambda1,
+                             lambda2 = grid_b$best$lambda2, max_iter = 500)
+  beta_b <- snap_beta_to_clusters(fit_b$beta, fit_b$z1, fit_b$z2,
+                                  edge_pairs_space_t2, edge_pairs_time_t2,
+                                  n = length(y_b))
+})
+
+cat(sprintf("b = %d | lambda1 = %.4f, lambda2 = %.4f, BIC = %.2f\n",
+            b, grid_b$best$lambda1, grid_b$best$lambda2, grid_b$best$bic))
+cat(sprintf("MSE(observed, truth): %.4f\n", mean((y_b - truth_vec_t2)^2)))
+cat(sprintf("MSE(beta_hat, truth): %.4f\n", mean((beta_b - truth_vec_t2)^2)))
+```
+
+Sanity check: does snapping give exactly identical values to fused pixels? On the dry-run replication (b = 1), a strict `!=` comparison and one with tolerance 1e-6 must both return the same count, so no numerical residuals are mistaken for changes. Unlike Test 1, here the counts are not expected to be 0 for Q1 -\> Q2 or Q2 -\> Q3, since the true changes are not zero. The expected number of true changes is 4 (Q1 -\> Q2, cluster A) and 8 (Q2 -\> Q3, clusters A and C).
+
+```{r}
+B_chk <- matrix(beta_b, ncol = T_sim_t2)
+
+# Q1 -> Q2 (expected: 4 true changes, cluster A)
+sum(B_chk[, 2] != B_chk[, 1])                 # strict
+sum(abs(B_chk[, 2] - B_chk[, 1]) > 1e-6)      # with tolerance
+
+# Q2 -> Q3 (expected: 8 true changes, clusters A and C)
+sum(B_chk[, 3] != B_chk[, 2])                 # strict
+sum(abs(B_chk[, 3] - B_chk[, 2]) > 1e-6)      # with tolerance
+```
+
+True partitions used as reference for the ARI, built once outside the loop. Since the fused lasso only fuses pixels connected by an edge, the reference is not the partition by value but the connected components of equal true value. The first partition uses spatial and temporal edges: the background is one cluster connected across all quarters, cluster B is one cluster (stable), cluster A splits into 3 clusters (a different value in each quarter), and cluster C into 2 (value 4 over Q1-Q2, value 2 at Q3), for 7 clusters in total.
+
+```{r}
+# True partition: connected components of pixels with equal true value
+# (what the fused lasso can recover at best, since it only fuses neighboring pixels)
+Dt    <- as(rbind(D_space_t2, D_time_t2), "TsparseMatrix")
+pairs <- do.call(rbind, tapply(Dt@j, Dt@i, function(v) v + 1))   # each row of D has 2 nonzeros
+same  <- truth_vec_t2[pairs[, 1]] == truth_vec_t2[pairs[, 2]]
+
+g    <- make_empty_graph(n = length(truth_vec_t2), directed = FALSE)
+g    <- add_edges(g, as.vector(t(pairs[same, ])))
+comp <- components(g)$membership
+
+cat("Number of true connected clusters:", max(comp), "\n")   # expected: 7
+```
+
+The second partition uses only spatial edges, to compare clusters quarter by quarter: in each quarter there are 4 clusters (the background and the three blocks).
+
+```{r}
+# True spatial partition: connected components using only spatial edges (no temporal links),
+# so that clusters can be compared quarter by quarter
+Ds      <- as(D_space_t2, "TsparseMatrix")
+pairs_s <- do.call(rbind, tapply(Ds@j, Ds@i, function(v) v + 1))
+same_s  <- truth_vec_t2[pairs_s[, 1]] == truth_vec_t2[pairs_s[, 2]]
+
+g_s        <- make_empty_graph(n = length(truth_vec_t2), directed = FALSE)
+g_s        <- add_edges(g_s, as.vector(t(pairs_s[same_s, ])))
+comp_space <- components(g_s)$membership
+
+# Pixel indices of each quarter (the vector is ordered layer by layer)
+idx_q <- lapply(1:T_sim_t2, function(t) ((t - 1) * n_cells_sim_t2 + 1):(t * n_cells_sim_t2))
+
+cat("True spatial clusters per quarter:",
+    sapply(idx_q, function(i) length(unique(comp_space[i]))), "\n")   # expected: 4 4 4
+```
+
+The cluster masks are defined by block position, not by value, so they stay valid even if two clusters share a value in some quarter. They are built in terra cell order (row by row), so they can be applied directly to the cells x quarters matrices used inside the loop.
+
+```{r}
+mask_block <- function(i, j) {
+  m <- matrix(FALSE, n_blocks_t2, n_blocks_t2)
+  m[i, j] <- TRUE
+  as.vector(t(expand_blocks(m, block_size_t2)))   # t(): terra cell order is row by row
+}
+
+mask_list <- list(growth  = mask_block(3, 3),   # cluster A
+                  stable  = mask_block(3, 6),   # cluster B
+                  decline = mask_block(6, 3))   # cluster C
+mask_list$bg <- !(mask_list$growth | mask_list$stable | mask_list$decline)
+cl_names <- names(mask_list)
+
+sapply(mask_list, sum)   # expected: growth 4, stable 4, decline 4, bg 244
+```
+
+Helper functions for the per-replication metrics, also defined once. They compute the MSE of a temporal difference against the true difference, the change detection counts (overall and for the growth and decline clusters), and the MSE / mean estimate by cluster and quarter.
+
+```{r}
+Tr_t2 <- matrix(truth_vec_t2, ncol = T_sim_t2)   # cells x quarters
+
+# MSE of a temporal difference (layer t+1 minus layer t) against the true difference
+mse_diff <- function(M, t) mean(((M[, t + 1] - M[, t]) - (Tr_t2[, t + 1] - Tr_t2[, t]))^2)
+
+# Change detection between layer t and t+1: estimated flag vs true flag, pixel by pixel
+# (true positives are also counted separately for the growth and decline clusters)
+detect <- function(M, t) {
+  est  <- M[, t + 1] != M[, t]
+  true <- Tr_t2[, t + 1] != Tr_t2[, t]
+  c(acc = mean(est == true), tp = sum(est & true), fp = sum(est & !true), fn = sum(!est & true),
+    tp_growth  = sum(est & true & mask_list$growth),
+    tp_decline = sum(est & true & mask_list$decline))
+}
+
+# Statistic by cluster and quarter, flattened into a named list (e.g. mse_growth_q1)
+cl_stat <- function(M, fun, prefix) {
+  out <- sapply(mask_list, function(m)
+    sapply(1:T_sim_t2, function(t) fun(M[m, t], Tr_t2[m, t])))
+  nm  <- outer(1:T_sim_t2, cl_names, function(t, cl) paste0(prefix, "_", cl, "_q", t))
+  setNames(as.list(as.vector(out)), as.vector(nm))
 }
 ```
 
+### Monte Carlo Loop
+
+Monte Carlo loop. In each replication, fresh Gaussian noise is added to the fixed ground truth, lambda is selected by BIC on the full grid, and the ADMM fit is snapped to clusters. For each replication we store the overall MSE, the selected lambdas, and the following metrics.
+
+- **MSE of the temporal differences.** The MSE of the differences between consecutive quarters (Q2 - Q1 and Q3 - Q2), for both the observed data and the estimate, against the true differences. The observed data serve as a baseline.
+
+- **Change detection.** For each transition, a pixel is flagged as “changed” if its value differs between the two quarters. We store accuracy, true positives, false positives and false negatives. True positives are also counted separately for the growth cluster (Q1 -\> Q2 and Q2 -\> Q3) and the decline cluster (Q2 -\> Q3). The true changes are 4 pixels in Q1 -\> Q2 and 8 in Q2 -\> Q3.
+
+- **Cluster recovery.** The ARI between the estimated and the true space-time partition, the ARI quarter by quarter on the spatial partition, and the number of estimated clusters.
+
+- **By cluster and quarter.** The MSE and the mean estimate of each cluster (growth, stable, decline, background) in each quarter, to quantify how much of each trajectory is recovered.
+
+```{r}
+res <- vector("list", B_t2)
+
+system.time(
+  for (b in seq_len(B_t2)) {
+    # Replication-specific seed: each replication draws its own independent noise,
+    # and any single replication b can be reproduced on its own by re-running set.seed(1000 + b).
+    set.seed(1000 + b)
+    y_b <- as.vector(truth_vec_t2 + rnorm(length(truth_vec_t2), 0, sigma_sim_t2))
+    
+    grid_b <- grid_search_lambda(y = y_b, D_space = D_space_t2, D_time = D_time_t2,
+                                 lambda1_grid = lambda1_grid_t2,
+                                 lambda2_grid = lambda2_grid_t2, n_cores = 1)
+    
+    ops_b <- prepare_admm_operators(D_space_t2, D_time_t2, n = length(y_b), rho = 1)
+    fit_b <- admm_fusedlasso3d(y = y_b, ops = ops_b,
+                               lambda1 = grid_b$best$lambda1,
+                               lambda2 = grid_b$best$lambda2,
+                               max_iter = 500, verbose = FALSE)
+    beta_b <- snap_beta_to_clusters(fit_b$beta, fit_b$z1, fit_b$z2,
+                                    edge_pairs_space_t2, edge_pairs_time_t2,
+                                    n = length(y_b))
+    
+    # cells x quarters matrices
+    Y_b <- matrix(y_b,    ncol = T_sim_t2)
+    B_b <- matrix(beta_b, ncol = T_sim_t2)
+    
+    det12 <- detect(B_b, 1)
+    det23 <- detect(B_b, 2)
+    
+    # ARI between the true and the estimated partition of the space-time pixels
+    ari_val <- adjustedRandIndex(comp, round(beta_b, 8))
+    
+    # ARI quarter by quarter (spatial partition only)
+    ari_q <- sapply(1:T_sim_t2, function(t)
+      adjustedRandIndex(comp_space[idx_q[[t]]], round(beta_b[idx_q[[t]]], 8)))
+    
+    res[[b]] <- data.frame(
+      b = b,
+      mse_obs      = mean((y_b - truth_vec_t2)^2),
+      mse_beta     = mean((beta_b - truth_vec_t2)^2),
+      mse_obs_d12  = mse_diff(Y_b, 1), mse_beta_d12 = mse_diff(B_b, 1),
+      mse_obs_d23  = mse_diff(Y_b, 2), mse_beta_d23 = mse_diff(B_b, 2),
+      acc_d12 = det12["acc"], tp_d12 = det12["tp"], fp_d12 = det12["fp"], fn_d12 = det12["fn"],
+      tp_growth_d12 = det12["tp_growth"],
+      acc_d23 = det23["acc"], tp_d23 = det23["tp"], fp_d23 = det23["fp"], fn_d23 = det23["fn"],
+      tp_growth_d23 = det23["tp_growth"], tp_decline_d23 = det23["tp_decline"],
+      ari = ari_val, ari_q1 = ari_q[1], ari_q2 = ari_q[2], ari_q3 = ari_q[3],
+      cl_stat(B_b, function(e, tr) mean((e - tr)^2), "mse"),   # MSE by cluster and quarter
+      cl_stat(B_b, function(e, tr) mean(e),          "est"),   # mean estimate by cluster and quarter
+      n_clusters   = length(unique(round(beta_b, 8))),
+      lambda1      = grid_b$best$lambda1,
+      lambda2      = grid_b$best$lambda2,
+      row.names = NULL
+    )
+  }
+)
+
+res <- do.call(rbind, res)
+head(res)
+```
+
+Visualization of a single replication: ground truth (top row), noisy observed data (middle row) and fused lasso estimate (bottom row), on the same color scale. The replication is re-fitted using the lambdas selected during the Monte Carlo loop. Change `b_show` to inspect other replications, for example the one where the estimate is worst.
+
+```{r}
+b_show <- 1
+# change to which.max(res$mse_beta) to inspect the replication where the estimate is worst
+
+## Regenerate the noise of replication b_show and refit with its selected lambdas
+set.seed(1000 + b_show)
+y_show <- as.vector(truth_vec_t2 + rnorm(length(truth_vec_t2), 0, sigma_sim_t2))
+
+ops_show <- prepare_admm_operators(D_space_t2, D_time_t2, n = length(y_show), rho = 1)
+fit_show <- admm_fusedlasso3d(y = y_show, ops = ops_show,
+                              lambda1 = res$lambda1[b_show],
+                              lambda2 = res$lambda2[b_show],
+                              max_iter = 500, verbose = FALSE)
+beta_show <- snap_beta_to_clusters(fit_show$beta, fit_show$z1, fit_show$z2,
+                                   edge_pairs_space_t2, edge_pairs_time_t2,
+                                   n = length(y_show))
+
+cat(sprintf("b = %d | MSE(obs) = %.4f, MSE(beta) = %.4f (from res: %.4f, %.4f)\n",
+            b_show, mean((y_show - truth_vec_t2)^2), mean((beta_show - truth_vec_t2)^2),
+            res$mse_obs[b_show], res$mse_beta[b_show]))
+
+## Build observed and estimated stacks
+r_stack_obs_show <- r_stack_truth_t2
+values(r_stack_obs_show) <- matrix(y_show, ncol = T_sim_t2)
+names(r_stack_obs_show) <- names(r_stack_truth_t2)
+
+r_stack_est_show <- r_stack_truth_t2
+values(r_stack_est_show) <- matrix(beta_show, ncol = T_sim_t2)
+names(r_stack_est_show) <- names(r_stack_truth_t2)
+
+zlim_full_t2 <- range(c(values(r_stack_truth_t2), values(r_stack_obs_show), values(r_stack_est_show)), na.rm = TRUE)
+zlim_full_t2[1] <- zlim_full_t2[1] - 1e-6
+zlim_full_t2[2] <- zlim_full_t2[2] + 1e-6
+```
+
 ```{r, fig.height=10}
-beta_array_t2_full <- array(beta_t2_final, dim = c(n_cells_sim_t2, T_sim_t2))
-r_stack_est_t2 <- r_stack_obs_t2
-values(r_stack_est_t2) <- beta_array_t2_full
-names(r_stack_est_t2) <- names(r_stack_obs_t2)
+par(mfrow = c(3, 3))
+for (t in 1:3) plot(r_stack_truth_t2[[t]],
+                    main = paste("Truth -", names(r_stack_truth_t2)[t]),
+                    range = zlim_full_t2, type = "continuous")
+for (t in 1:3) plot(r_stack_obs_show[[t]],
+                    main = paste("Observed -", names(r_stack_obs_show)[t]),
+                    range = zlim_full_t2, type = "continuous")
+for (t in 1:3) plot(r_stack_est_show[[t]],
+                    main = paste("Estimated -", names(r_stack_est_show)[t]),
+                    range = zlim_full_t2, type = "continuous")
+```
 
-zlim_sim_t2_full <- range(c(values(r_stack_truth_t2), values(r_stack_obs_t2), values(r_stack_est_t2)), na.rm = TRUE)
-zlim_sim_t2_full[1] <- zlim_sim_t2_full[1] - 1e-6
-zlim_sim_t2_full[2] <- zlim_sim_t2_full[2] + 1e-6
+### MSE
 
-par(mfrow = c(3, 3), mar = c(3, 3, 2, 2))
+Boxplots of the MSE of the temporal differences over the B replications: Q1 -\> Q2 (true change only in cluster A) and Q2 -\> Q3 (true changes in clusters A and C), observed data vs fused lasso estimate.
 
-for (t in 1:3) {
-  plot(r_stack_truth_t2[[t]], main = paste("Truth T2 -", names(r_stack_truth_t2)[t]),
-       range = zlim_sim_t2_full, type = "continuous")
-}
-for (t in 1:3) {
-  plot(r_stack_obs_t2[[t]], main = paste("Observed T2 -", names(r_stack_obs_t2)[t]),
-       range = zlim_sim_t2_full, type = "continuous")
-}
-for (t in 1:3) {
-  plot(r_stack_est_t2[[t]], main = paste("Estimated T2 -", names(r_stack_est_t2)[t]),
-       range = zlim_sim_t2_full, type = "continuous")
-}
+```{r}
+mse_long_t2 <- data.frame(
+  mse = c(res$mse_obs_d12, res$mse_beta_d12, res$mse_obs_d23, res$mse_beta_d23),
+  transition = rep(c("Q1 -> Q2", "Q2 -> Q3"), each = 2 * B_t2),
+  source = rep(rep(c("Observed", "Estimated"), each = B_t2), times = 2)
+)
+mse_long_t2$source <- factor(mse_long_t2$source, levels = c("Observed", "Estimated"))
+
+ggplot(mse_long_t2, aes(x = transition, y = mse, fill = source)) +
+  geom_boxplot(position = position_dodge(width = 0.8), width = 0.7) +
+  scale_fill_viridis_d(option = "cividis", begin = 0.3, end = 0.9) +
+  labs(title = paste0("MSE of temporal differences over B=", B_t2, " replications"),
+       x = NULL, y = "MSE", fill = NULL) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, size = 14))
+```
+
+```{r}
+ggsave(
+  filename = file.path(plots_output_folder, "simulation_test2_mse_boxplot.png"),
+  plot = last_plot(),
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+
+ggsave(
+  filename = file.path(pdf_folder, "simulation_test2_mse_boxplot.pdf"),
+  plot = last_plot(),
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white",
+  device = cairo_pdf
+)
+```
+
+Overall MSE over the B replications: observed data vs fused lasso estimate, with the percentage reduction in each replication.
+
+```{r}
+res$reduction <- 100 * (1 - res$mse_beta / res$mse_obs)
+
+summary(res[, c("mse_obs", "mse_beta", "reduction")])
+cat(sprintf("MSE observed: mean = %.4f (sd %.4f) | MSE estimate: mean = %.4f (sd %.4f)\n",
+            mean(res$mse_obs), sd(res$mse_obs), mean(res$mse_beta), sd(res$mse_beta)))
+cat(sprintf("Replications where the estimate is worse than the raw data: %d of %d\n",
+            sum(res$mse_beta > res$mse_obs), B_t2))
+```
+
+MSE by cluster and quarter. The three clusters follow different trajectories, so the shrinkage bias can differ across them (the sudden decline of cluster C is the hardest case for the fused lasso).
+
+```{r}
+mse_cols <- grep("^mse_(growth|stable|decline|bg)_q", names(res), value = TRUE)
+summary(res[, mse_cols])
+
+mse_cl_long <- do.call(rbind, lapply(mse_cols, function(cn) {
+  parts <- strsplit(sub("^mse_", "", cn), "_")[[1]]
+  data.frame(mse = res[[cn]], cluster = parts[1], quarter = toupper(parts[2]))
+}))
+mse_cl_long$cluster <- factor(mse_cl_long$cluster,
+                              levels = c("growth", "stable", "decline", "bg"),
+                              labels = c("Growth (A)", "Stable (B)", "Decline (C)", "Background"))
+
+ggplot(mse_cl_long, aes(x = quarter, y = mse, fill = cluster)) +
+  geom_boxplot(position = position_dodge(width = 0.8), width = 0.7) +
+  scale_fill_viridis_d(option = "cividis", begin = 0.1, end = 0.95) +
+  labs(title = paste0("MSE by cluster and quarter over B=", B_t2, " replications"),
+       x = NULL, y = "MSE", fill = NULL) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, size = 14))
+```
+
+```{r}
+ggsave(
+  filename = file.path(plots_output_folder, "simulation_test2_mse_cluster_boxplot.png"),
+  plot = last_plot(),
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+
+ggsave(
+  filename = file.path(pdf_folder, "simulation_test2_mse_cluster_boxplot.pdf"),
+  plot = last_plot(),
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white",
+  device = cairo_pdf
+)
+```
+
+### Accuracy
+
+Change detection summary. The true changes are 4 pixels in Q1 -\> Q2 (growth cluster) and 8 in Q2 -\> Q3 (4 growth + 4 decline), so `tp_d12` should be 4, `tp_d23` should be 8, and the false positives and false negatives should be 0 when the clusters are recovered exactly.
+
+```{r}
+summary(res[, c("acc_d12", "tp_d12", "fp_d12", "fn_d12", "tp_growth_d12",
+                "acc_d23", "tp_d23", "fp_d23", "fn_d23", "tp_growth_d23", "tp_decline_d23")])
+```
+
+Replications with false positives and the lambdas selected by BIC across the B replications.
+
+```{r}
+res[res$fp_d12 > 0 | res$fp_d23 > 0,
+    c("b", "lambda1", "lambda2", "fp_d12", "fp_d23", "ari", "mse_beta")]
+
+table(lambda1 = round(res$lambda1, 4), lambda2 = round(res$lambda2, 4))
+```
+
+### ARI
+
+The true number of space-time clusters is 7, so `n_clusters` is directly comparable.
+
+```{r}
+summary(res$ari)
+summary(res$n_clusters)
+cor(res$ari, res$n_clusters)
+sd(res$ari)
+```
+
+```{r}
+summary(res[, c("ari", "ari_q1", "ari_q2", "ari_q3")])
+```
+
+```{r}
+ari_long_t2 <- data.frame(
+  ari   = c(res$ari, res$ari_q1, res$ari_q2, res$ari_q3),
+  panel = factor(rep(c("Space-time (overall)", "Q1 (spatial)", "Q2 (spatial)", "Q3 (spatial)"),
+                     each = B_t2),
+                 levels = c("Space-time (overall)", "Q1 (spatial)", "Q2 (spatial)", "Q3 (spatial)"))
+)
+
+ggplot(ari_long_t2, aes(x = panel, y = ari)) +
+  geom_boxplot(fill = "lightblue", width = 0.6) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(title = paste0("Adjusted Rand Index over B=", B_t2, " replications"), x = NULL, y = "ARI") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, size = 14))
+```
+
+```{r}
+ggsave(
+  filename = file.path(plots_output_folder, "simulation_test2_ari_boxplots.png"),
+  plot = last_plot(),
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+
+ggsave(
+  filename = file.path(pdf_folder, "simulation_test2_ari_boxplots.pdf"),
+  plot = last_plot(),
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white",
+  device = cairo_pdf
+)
+```
+
+### Cluster means
+
+Mean estimate of each cluster in each quarter against the true value, over the B replications. This replaces the center-block analysis of Test 1: it quantifies how much of each trajectory (growth, stable, sudden decline) is recovered, and the bias is the shrinkage induced by the penalties.
+
+```{r}
+true_means <- sapply(mask_list, function(m) colMeans(Tr_t2[m, , drop = FALSE]))   # quarters x clusters
+
+est_cols <- grep("^est_(growth|stable|decline|bg)_q", names(res), value = TRUE)
+
+bias_tab <- do.call(rbind, lapply(est_cols, function(cn) {
+  parts <- strsplit(sub("^est_", "", cn), "_")[[1]]
+  cl <- parts[1]
+  q  <- as.integer(sub("q", "", parts[2]))
+  data.frame(cluster  = cl,
+             quarter  = q,
+             truth    = true_means[q, cl],
+             est_mean = mean(res[[cn]]),
+             est_sd   = sd(res[[cn]]),
+             bias     = mean(res[[cn]]) - true_means[q, cl],
+             row.names = NULL)
+}))
+bias_tab
+```
+
+Estimated jumps for the two clusters with a true change, compared with the true values (growth: +1 in each transition; decline: -2 at Q3).
+
+```{r}
+summary(res$est_growth_q2  - res$est_growth_q1)    # true value = 1
+summary(res$est_growth_q3  - res$est_growth_q2)    # true value = 1
+summary(res$est_decline_q3 - res$est_decline_q2)   # true value = -2
 ```
