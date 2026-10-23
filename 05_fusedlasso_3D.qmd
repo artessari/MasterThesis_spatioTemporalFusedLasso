@@ -32,6 +32,7 @@ library(patchwork)
 library(Matrix)
 library(igraph)
 library(ggtext)
+library(mclust)
 
 # Folders
 data_dir <- file.path(getwd(), "data")
@@ -1293,18 +1294,64 @@ cat(sprintf("MSE(observed, truth): %.4f\n", mean((y_b - truth_vec)^2)))
 cat(sprintf("MSE(beta_hat, truth): %.4f\n", mean((beta_b - truth_vec)^2)))
 ```
 
-### Monte Carlo Loop
+```{r}
+# Sanity check: does snapping give exactly identical values to fused pixels?
+# Sanity check on the dry-run replication (b = 1): a strict != comparison and one with
+# tolerance 1e-6 must both return 0, so no numerical residuals are mistaken for changes.
 
-Monte Carlo loop: in each replication, fresh noise is added to the fixed truth, lambda is selected by BIC on the full grid, and the ADMM fit is snapped to clusters. Per replication we store the MSEs and the selected lambdas.
+B_chk <- matrix(beta_b, ncol = T_sim)
+sum(B_chk[, 2] != B_chk[, 1])                 # strict
+sum(abs(B_chk[, 2] - B_chk[, 1]) > 1e-6)      # with tolerance
+```
 
-In addition to the overall MSE, each replication stores the MSE of the temporal differences (Q2 - Q1 and Q3 - Q2) for both the observed data and the estimate, against the true differences.
+## Monte Carlo Loop
 
-Change detection: for each transition, a pixel is flagged as "changed" if the absolute temporal difference exceeds a tolerance. Accuracy is the share of pixels where the estimated flag matches the true one; false positives (changes found where there are none) and false negatives (true changes missed) are counted separately.
+In each replication, fresh Gaussian noise is added to the fixed ground truth, lambda is selected by BIC on the full grid, and the ADMM fit is snapped to clusters. For each replication we store the overall MSE, the selected lambdas, and the following metrics.
+
+**MSE of the temporal differences.** The MSE of the differences between consecutive quarters (Q2 - Q1 and Q3 - Q2), computed for both the observed data and the estimate against the true differences. The observed data serve as a baseline: no model, just the noisy differences.
+
+**Change detection.** For each transition, a pixel is flagged as "changed" if its value differs between the two quarters. Accuracy is the share of pixels where the estimated flag matches the true one. True positives (true changes detected), false positives (changes found where there are none) and false negatives (true changes missed) are counted separately, since accuracy alone is dominated by the large number of unchanged pixels.
+
+**Cluster recovery.** The Adjusted Rand Index (ARI) compares the estimated partition of the space-time pixels with the true one, defined as the connected components of neighboring pixels with equal true value (the best partition the fused lasso can recover, since it only fuses neighbors). 1 means identical partitions. The number of estimated clusters is stored too, and the ARI is repeated quarter by quarter on the purely spatial partition.
+
+**Center block.** The mean estimate over the 4 pixels of the center block in each quarter, to quantify how much of the true jump (3 -\> 5) is recovered.
+
+True partitions used as reference for the ARI, built once outside the loop. Since the fused lasso only fuses pixels connected by an edge, the reference is not the partition by value but the connected components of equal true value: the 4 neighbor blocks of the plus are not adjacent to each other, so they count as 4 separate clusters (8 clusters in total). The second partition uses only spatial edges, to compare clusters quarter by quarter (7 per quarter).
+
+```{r}
+# True partition: connected components of pixels with equal true value
+# (what the fused lasso can recover at best, since it only fuses neighboring pixels)
+Dt    <- as(rbind(D_space_sim, D_time_sim), "TsparseMatrix")
+pairs <- do.call(rbind, tapply(Dt@j, Dt@i, function(v) v + 1))   # each row of D has 2 nonzeros
+same  <- truth_vec[pairs[, 1]] == truth_vec[pairs[, 2]]
+
+g    <- make_empty_graph(n = length(truth_vec), directed = FALSE)
+g    <- add_edges(g, as.vector(t(pairs[same, ])))
+comp <- components(g)$membership
+
+cat("Number of true connected clusters:", max(comp), "\n")   # expected: 8
+```
+
+```{r}
+# True spatial partition: connected components using only spatial edges (no temporal links),
+# so that clusters can be compared quarter by quarter
+Ds     <- as(D_space_sim, "TsparseMatrix")
+pairs_s <- do.call(rbind, tapply(Ds@j, Ds@i, function(v) v + 1))
+same_s  <- truth_vec[pairs_s[, 1]] == truth_vec[pairs_s[, 2]]
+
+g_s        <- make_empty_graph(n = length(truth_vec), directed = FALSE)
+g_s        <- add_edges(g_s, as.vector(t(pairs_s[same_s, ])))
+comp_space <- components(g_s)$membership
+
+# Pixel indices of each quarter (the vector is ordered layer by layer)
+idx_q <- lapply(1:T_sim, function(t) ((t - 1) * n_cells_sim + 1):(t * n_cells_sim))
+
+cat("True spatial clusters per quarter:",
+    sapply(idx_q, function(i) length(unique(comp_space[i]))), "\n")   # expected: 7 7 7
+```
 
 ```{r}
 res <- vector("list", B)
-
-tol <- 1e-6   # tolerance to flag a pixel as "changed" between two quarters
 
 system.time(
   for (b in seq_len(B)) {
@@ -1336,12 +1383,24 @@ system.time(
     
     # Change detection between layer t and t+1: estimated flag vs true flag, pixel by pixel
     detect <- function(M, t) {
-      est  <- abs(M[, t + 1] - M[, t]) > tol
-      true <- abs(Tr_b[, t + 1] - Tr_b[, t]) > tol
+      est  <- M[, t + 1] != M[, t]
+      true <- Tr_b[, t + 1] != Tr_b[, t]
       c(acc = mean(est == true), tp = sum(est & true), fp = sum(est & !true), fn = sum(!est & true))
     }
     det12 <- detect(B_b, 1)
     det23 <- detect(B_b, 2)
+    
+    # Mean estimate over the center block (pixels whose true value changes at Q3) in each quarter
+    center_cells <- which(Tr_b[, 3] != Tr_b[, 2])
+    center_est   <- colMeans(B_b[center_cells, , drop = FALSE])
+    
+    # Compute Adjusted Rand Index (ARI) between the true and the estimated partition of the space-time pixels
+    # (true partition = connected components of equal true value, `comp`, built once outside the loop)
+    ari_val <- adjustedRandIndex(comp, round(beta_b, 8))
+    
+    # ARI quarter by quarter (spatial partition only)
+    ari_q <- sapply(1:T_sim, function(t)
+      adjustedRandIndex(comp_space[idx_q[[t]]], round(beta_b[idx_q[[t]]], 8)))
     
     res[[b]] <- data.frame(b = b,
                            mse_obs      = mean((y_b - truth_vec)^2),
@@ -1352,6 +1411,10 @@ system.time(
                            mse_beta_d23 = mse_diff(B_b, 2),
                            acc_d12 = det12["acc"], fp_d12 = det12["fp"],
                            acc_d23 = det23["acc"], tp_d23 = det23["tp"], fp_d23 = det23["fp"], fn_d23 = det23["fn"],
+                           ari          = ari_val,
+                           ari_q1 = ari_q[1], ari_q2 = ari_q[2], ari_q3 = ari_q[3],
+                           center_q1 = center_est[1], center_q2 = center_est[2], center_q3 = center_est[3],
+                           n_clusters   = length(unique(round(beta_b, 8))),
                            lambda1      = grid_b$best$lambda1,
                            lambda2      = grid_b$best$lambda2)
   }
@@ -1432,10 +1495,88 @@ ggplot(mse_long, aes(x = transition, y = mse, fill = source)) +
   theme(plot.title = element_text(hjust = 0.5, size = 14))
 ```
 
+```{r}
+# Overall MSE over the B replications: observed data vs fused lasso estimate, 
+# with the percentage reduction in each replication.
+
+res$reduction <- 100 * (1 - res$mse_beta / res$mse_obs)
+
+summary(res[, c("mse_obs", "mse_beta", "reduction")])
+cat(sprintf("MSE observed: mean = %.4f (sd %.4f) | MSE estimate: mean = %.4f (sd %.4f)\n",
+            mean(res$mse_obs), sd(res$mse_obs), mean(res$mse_beta), sd(res$mse_beta)))
+cat(sprintf("Replications where the estimate is worse than the raw data: %d of %d\n",
+            sum(res$mse_beta > res$mse_obs), B))
+```
+
 ### Accuracy
 
 ```{r}
 summary(res[, c("acc_d12", "fp_d12", "acc_d23", "tp_d23", "fp_d23", "fn_d23")])
+```
+
+```{r}
+# Replications with false positives and the lambdas selected by BIC across the B replications.
+
+res[res$fp_d12 > 0 | res$fp_d23 > 0,
+    c("b", "lambda1", "lambda2", "fp_d12", "fp_d23", "ari", "mse_beta")]
+
+table(lambda1 = round(res$lambda1, 4), lambda2 = round(res$lambda2, 4))
+```
+
+### ARI
+
+```{r}
+summary(res$ari)
+summary(res$n_clusters)
+cor(res$ari, res$n_clusters)
+sd(res$ari)
+```
+
+```{r}
+summary(res[, c("ari", "ari_q1", "ari_q2", "ari_q3")])
+```
+
+```{r}
+summary(res[, c("center_q1", "center_q2", "center_q3")])
+summary(res$center_q3 - res$center_q2)   # estimated jump, true value = 2
+```
+
+```{r}
+ari_long <- data.frame(
+  ari   = c(res$ari, res$ari_q1, res$ari_q2, res$ari_q3),
+  panel = factor(rep(c("Space-time (overall)", "Q1 (spatial)", "Q2 (spatial)", "Q3 (spatial)"),
+                     each = B),
+                 levels = c("Space-time (overall)", "Q1 (spatial)", "Q2 (spatial)", "Q3 (spatial)"))
+)
+
+ggplot(ari_long, aes(x = panel, y = ari)) +
+  geom_boxplot(fill = "lightblue", width = 0.6) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(title = paste0("Adjusted Rand Index over B=", B, " replications"), x = NULL, y = "ARI") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, size = 14))
+```
+
+### Center Block
+
+```{r}
+# Predicted shrinkage of the center block if the cluster is recovered exactly:
+# bias = (sum of lambda x boundary edges, signed) / cluster size
+# Q3 (4 pixels): 8 spatial + 4 temporal edges, all pushing down      -> 2*l1 + l2
+# Q1/Q2 (8 pixels): 16 spatial edges pushing down, 4 temporal up     -> 2*l1 - l2/2
+res$bias_q3_obs   <- 5 - res$center_q3
+res$bias_q12_obs  <- 3 - (res$center_q1 + res$center_q2) / 2
+res$bias_q3_pred  <- 2 * res$lambda1 + res$lambda2
+res$bias_q12_pred <- 2 * res$lambda1 - res$lambda2 / 2
+
+cat(sprintf("Q3:    observed = %.3f, predicted = %.3f, cor = %.3f, slope = %.2f\n",
+            mean(res$bias_q3_obs), mean(res$bias_q3_pred),
+            cor(res$bias_q3_obs, res$bias_q3_pred),
+            coef(lm(bias_q3_obs ~ bias_q3_pred, data = res))[2]))
+cat(sprintf("Q1/Q2: observed = %.3f, predicted = %.3f, cor = %.3f, slope = %.2f\n",
+            mean(res$bias_q12_obs), mean(res$bias_q12_pred),
+            cor(res$bias_q12_obs, res$bias_q12_pred),
+            coef(lm(bias_q12_obs ~ bias_q12_pred, data = res))[2]))
 ```
 
 ## TEST 2: Multiple Independent Clusters with Distinct Temporal Trajectories
