@@ -1496,6 +1496,27 @@ ggplot(mse_long, aes(x = transition, y = mse, fill = source)) +
 ```
 
 ```{r}
+ggsave(
+  filename = file.path(plots_output_folder, "simulation_test1_mse_boxplot.png"),
+  plot = last_plot(), 
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+
+ggsave(
+  filename = file.path(pdf_folder, "simulation_test1_mse_boxplot.pdf"),
+  plot = last_plot(), 
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white",
+  device = cairo_pdf
+)
+```
+
+```{r}
 # Overall MSE over the B replications: observed data vs fused lasso estimate, 
 # with the percentage reduction in each replication.
 
@@ -1555,6 +1576,27 @@ ggplot(ari_long, aes(x = panel, y = ari)) +
   labs(title = paste0("Adjusted Rand Index over B=", B, " replications"), x = NULL, y = "ARI") +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5, size = 14))
+```
+
+```{r}
+ggsave(
+  filename = file.path(plots_output_folder, "simulation_test1_ari_boxplots.png"),
+  plot = last_plot(), 
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
+
+ggsave(
+  filename = file.path(pdf_folder, "simulation_test1_ari_boxplots.pdf"),
+  plot = last_plot(), 
+  width = 12,
+  height = 6,
+  dpi = 300,
+  bg = "white",
+  device = cairo_pdf
+)
 ```
 
 ### Center Block
