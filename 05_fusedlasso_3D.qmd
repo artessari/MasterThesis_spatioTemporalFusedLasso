@@ -1464,14 +1464,39 @@ zlim_full[2] <- zlim_full[2] + 1e-6
 ```{r, fig.height=10}
 par(mfrow = c(3, 3))
 for (t in 1:3) plot(r_stack_truth[[t]],
-                    main = paste("Truth -", names(r_stack_truth)[t]),
-                    range = zlim_full, type = "continuous")
+                    main = paste("Truth -", names(r_stack_truth)[t]), 
+                    cex.main = 1.5, range = zlim_full, type = "continuous")
 for (t in 1:3) plot(r_stack_obs_show[[t]],
                     main = paste("Observed -", names(r_stack_obs_show)[t]),
-                    range = zlim_full, type = "continuous")
+                    cex.main = 1.5, range = zlim_full, type = "continuous")
 for (t in 1:3) plot(r_stack_est_show[[t]],
                     main = paste("Estimated -", names(r_stack_est_show)[t]),
-                    range = zlim_full, type = "continuous")
+                    cex.main = 1.5, range = zlim_full, type = "continuous")
+```
+
+```{r}
+pdf(file = file.path(pdf_folder, "simulation_test1_truth_observed.pdf"), 
+    width = 12, height = 6)
+
+par(mfrow = c(2, 3))
+for (t in 1:3) plot(r_stack_truth[[t]],
+                    main = paste("Truth -", names(r_stack_truth)[t]), 
+                    cex.main = 1.5, range = zlim_full, type = "continuous")
+for (t in 1:3) plot(r_stack_obs_show[[t]],
+                    main = paste("Observed -", names(r_stack_obs_show)[t]),
+                    cex.main = 1.5, range = zlim_full, type = "continuous")
+dev.off()
+```
+
+```{r, fig.height=3}
+pdf(file = file.path(pdf_folder, "simulation_test1_estimated.pdf"), 
+    width = 12, height = 3)
+
+par(mfrow = c(1, 3))
+for (t in 1:3) plot(r_stack_est_show[[t]],
+                    main = paste("Estimated -", names(r_stack_est_show)[t]),
+                    cex.main = 1.5, range = zlim_full, type = "continuous")
+dev.off()
 ```
 
 ### MSE
@@ -1492,7 +1517,10 @@ ggplot(mse_long, aes(x = transition, y = mse, fill = source)) +
   labs(title = paste0("MSE of temporal differences over B=", B, " replications"),
        x = NULL, y = "MSE", fill = NULL) +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5, size = 14))
+  theme(plot.title = element_text(hjust = 0.5, size = 16),
+        axis.text = element_text(size = 13),       
+        axis.title = element_text(size = 14),
+        legend.text = element_text(size = 14))
 ```
 
 ```{r}
@@ -1514,6 +1542,14 @@ ggsave(
   bg = "white",
   device = cairo_pdf
 )
+```
+
+```{r}
+median(res$mse_obs_d12)
+median(res$mse_beta_d12)
+
+median(res$mse_obs_d23)
+median(res$mse_beta_d23)
 ```
 
 ```{r}
@@ -1570,7 +1606,10 @@ ggplot(ari_long, aes(x = panel, y = ari)) +
   coord_cartesian(ylim = c(0, 1)) +
   labs(title = paste0("Adjusted Rand Index over B=", B, " replications"), x = NULL, y = "ARI") +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5, size = 14))
+  theme(plot.title = element_text(hjust = 0.5, size = 16),
+        axis.text = element_text(size = 13),       
+        axis.title = element_text(size = 14),
+        legend.text = element_text(size = 14))
 ```
 
 ```{r}
@@ -1947,6 +1986,15 @@ head(res)
 Visualization of a single replication: ground truth (top row), noisy observed data (middle row) and fused lasso estimate (bottom row), on the same color scale. The replication is re-fitted using the lambdas selected during the Monte Carlo loop. Change `b_show` to inspect other replications, for example the one where the estimate is worst.
 
 ```{r}
+which.min(res$ari)
+
+res$ari[1]
+res$n_clusters[1]
+
+which.min(abs(res$ari - median(res$ari)))
+```
+
+```{r}
 b_show <- 1
 # change to which.max(res$mse_beta) to inspect the replication where the estimate is worst
 
@@ -1985,13 +2033,38 @@ zlim_full_t2[2] <- zlim_full_t2[2] + 1e-6
 par(mfrow = c(3, 3))
 for (t in 1:3) plot(r_stack_truth_t2[[t]],
                     main = paste("Truth -", names(r_stack_truth_t2)[t]),
-                    range = zlim_full_t2, type = "continuous")
+                    cex.main = 1.5, range = zlim_full_t2, type = "continuous")
 for (t in 1:3) plot(r_stack_obs_show[[t]],
                     main = paste("Observed -", names(r_stack_obs_show)[t]),
-                    range = zlim_full_t2, type = "continuous")
+                    cex.main = 1.5, range = zlim_full_t2, type = "continuous")
 for (t in 1:3) plot(r_stack_est_show[[t]],
                     main = paste("Estimated -", names(r_stack_est_show)[t]),
-                    range = zlim_full_t2, type = "continuous")
+                    cex.main = 1.5, range = zlim_full_t2, type = "continuous")
+```
+
+```{r}
+pdf(file = file.path(pdf_folder, "simulation_test2_truth_observed.pdf"), 
+    width = 12, height = 6)
+
+par(mfrow = c(2, 3))
+for (t in 1:3) plot(r_stack_truth_t2[[t]],
+                    main = paste("Truth -", names(r_stack_truth_t2)[t]),
+                    cex.main = 1.5, range = zlim_full_t2, type = "continuous")
+for (t in 1:3) plot(r_stack_obs_show[[t]],
+                    main = paste("Observed -", names(r_stack_obs_show)[t]),
+                    cex.main = 1.5, range = zlim_full_t2, type = "continuous")
+dev.off()
+```
+
+```{r, fig.height=3}
+pdf(file = file.path(pdf_folder, "simulation_test2_estimated.pdf"), 
+    width = 12, height = 3)
+
+par(mfrow = c(1, 3))
+for (t in 1:3) plot(r_stack_est_show[[t]],
+                    main = paste("Estimated -", names(r_stack_est_show)[t]),
+                    cex.main = 1.5, range = zlim_full_t2, type = "continuous")
+dev.off()
 ```
 
 ### MSE
@@ -2012,7 +2085,10 @@ ggplot(mse_long_t2, aes(x = transition, y = mse, fill = source)) +
   labs(title = paste0("MSE of temporal differences over B=", B_t2, " replications"),
        x = NULL, y = "MSE", fill = NULL) +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5, size = 14))
+  theme(plot.title = element_text(hjust = 0.5, size = 16),
+        axis.text = element_text(size = 13),       
+        axis.title = element_text(size = 14),
+        legend.text = element_text(size = 14))
 ```
 
 ```{r}
@@ -2034,6 +2110,14 @@ ggsave(
   bg = "white",
   device = cairo_pdf
 )
+```
+
+```{r}
+median(res$mse_obs_d12)
+median(res$mse_beta_d12)
+
+median(res$mse_obs_d23)
+median(res$mse_beta_d23)
 ```
 
 Overall MSE over the B replications: observed data vs fused lasso estimate, with the percentage reduction in each replication.
@@ -2064,11 +2148,14 @@ mse_cl_long$cluster <- factor(mse_cl_long$cluster,
 
 ggplot(mse_cl_long, aes(x = quarter, y = mse, fill = cluster)) +
   geom_boxplot(position = position_dodge(width = 0.8), width = 0.7) +
-  scale_fill_viridis_d(option = "cividis", begin = 0.1, end = 0.95) +
+  scale_fill_viridis_d(option = "turbo", begin = 0.1, end = 0.95) +
   labs(title = paste0("MSE by cluster and quarter over B=", B_t2, " replications"),
        x = NULL, y = "MSE", fill = NULL) +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5, size = 14))
+  theme(plot.title = element_text(hjust = 0.5, size = 16),
+        axis.text = element_text(size = 13),       
+        axis.title = element_text(size = 14),
+        legend.text = element_text(size = 14))
 ```
 
 ```{r}
@@ -2138,7 +2225,10 @@ ggplot(ari_long_t2, aes(x = panel, y = ari)) +
   coord_cartesian(ylim = c(0, 1)) +
   labs(title = paste0("Adjusted Rand Index over B=", B_t2, " replications"), x = NULL, y = "ARI") +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5, size = 14))
+  theme(plot.title = element_text(hjust = 0.5, size = 16),
+        axis.text = element_text(size = 13),       
+        axis.title = element_text(size = 14),
+        legend.text = element_text(size = 14))
 ```
 
 ```{r}
