@@ -463,13 +463,23 @@ build_lambda_grid <- function(min_val = 1e-3, max_val = 5, n = 15) {
 }
 ```
 
-`estimate_sigma2()` = Global noise variance estimate, extending the Rice-type estimator used in the 1D case ($\text{Var(diff)}=2\times\sigma^2$ under slowly-varying signal) to both spatial and temporal first differences of the raw observed data.
+`estimate_sigma2()` = Global noise variance estimate for the 3D model. It applies a Rice-type first-difference estimator ($\text{Var(diff)} = 2\sigma^2$ under a slowly-varying signal and uncorrelated noise) to all the edges of the spatio-temporal graph, pooling the spatial and the temporal first differences of the raw observed data:
+
+$$
+\hat{\sigma}^2 = \frac{1}{2}\,\text{mean}\left(\left[ D_{\text{space}}\, y ;\; D_{\text{time}}\, y \right]^2\right) = \frac{\lVert D_{\text{space}}\, y \rVert_2^2 + \lVert D_{\text{time}}\, y \rVert_2^2}{2\,(m_1 + m_2)}
+$$
+
+where $m_1$ and $m_2$ denote the total numbers of spatial and temporal edges, respectively. Since the mean is computed globally across the entire pooled vector, each direction is implicitly weighted by its respective structural cardinality.
+
+*Note on Edge Proportions:* In a regular 3D spatio-temporal grid ($S$ spatial pixels observed over $T$ time periods), the spatial penalty matrix $D_{\text{space}}$ accounts for horizontal and vertical adjacencies across all $T$ layers ($\approx 2ST$ edges), while the temporal penalty matrix $D_{\text{time}}$ tracks the single temporal transition for each pixel ($S(T-1) \approx ST$ edges). Consequently, pooling all differences assigns roughly **66% of the weight to the spatial dimensions** and **34% to the temporal dimension**, reflecting the natural 2D-to-1D topological imbalance of space-time graphs.
+
+The estimate is computed once from the raw data and is the same for every pair $(\lambda_1, \lambda_2)$ of the grid.
 
 ```{r}
 estimate_sigma2 <- function(y, D_space, D_time) {
   diffs <- c(as.numeric(D_space %*% y), as.numeric(D_time %*% y))
   sig2 <- mean(diffs^2) / 2
-  if (sig2 <= 0) sig2 <- 1e-6
+  if (!is.finite(sig2) || sig2 <= 0) sig2 <- 1e-6
   sig2
 }
 ```
@@ -811,6 +821,85 @@ ggsave(
   dpi = 300,
   bg = "white"
 )
+```
+
+```{r}
+r <- grid_out_refined$results; n <- length(y)
+for (s2 in c(attuale = grid_out_refined$sigma2_est, media = 0.0293, spaziale = 0.0203, temporale = 0.0382)) {
+  k <- which.min(r$rss / s2 + r$df * log(n))
+  cat(sprintf("sigma2 = %.4f -> lambda1 = %.4f, lambda2 = %.4f, df = %d\n", s2, r$lambda1[k], r$lambda2[k], r$df[k]))
+}
+c(lambda1_bounds, lambda2_bounds)   # an optimal solution falls on these bounds, the grid must be expanded
+```
+
+## Three-Dimensional Visualization of the BIC Surface
+
+```{r}
+plot_bic_3d <- function(grid_out, plot_title) {
+  df_3d <- grid_out$results[grid_out$results$lambda1 > 0 & grid_out$results$lambda2 > 0, ]
+  bic_mat <- xtabs(bic ~ lambda1 + lambda2, data = df_3d)
+  x_vals <- as.numeric(rownames(bic_mat))
+  y_vals <- as.numeric(colnames(bic_mat))
+  opt_l1 <- grid_out$best$lambda1
+  opt_l2 <- grid_out$best$lambda2
+  opt_bic <- grid_out$best$bic
+  
+  par(mfrow = c(1, 4), mar = c(1.5, 1.5, 2.5, 0.2),
+      oma = c(0, 0, 3, 0), cex = 1.0)
+  
+  angles <- list(
+    list(theta = 30, phi = 30, title = "View 1 (30°, 30°)"),
+    list(theta = 120, phi = 30, title = "View 2 (120°, 30°)"),
+    list(theta = 210, phi = 30, title = "View 3 (210°, 30°)"),
+    list(theta = 300, phi = 30, title = "View 4 (300°, 30°)")
+  )
+  
+  for (ang in angles) {
+    res_persp <- persp(log(x_vals), log(y_vals), as.matrix(bic_mat),
+                       theta = ang$theta, phi = ang$phi, expand = 0.85,
+                       col = "lightblue", shade = 0.4, border = "gray80",
+                       box = TRUE, ticktype = "simple",
+                       xlab = "log(lambda1)",
+                       ylab = "log(lambda2)",
+                       zlab = "BIC",
+                       main = ang$title, cex.main = 1.3, cex.lab = 1)
+    
+    pt <- trans3d(log(opt_l1), log(opt_l2), opt_bic, res_persp)
+    points(pt$x, pt$y, col = "red", pch = 19, cex = 1.5)
+    
+    text_x <- pt$x
+    text_y <- pt$y + 0.38
+    
+    par(xpd = TRUE)
+    segments(pt$x, pt$y, text_x, text_y, col = "red", lty = 2, lwd = 1.5)
+    text(text_x, text_y, labels = "Min BIC", col = "red", cex = 1.1, font = 2, adj = c(0.5, 0))
+    par(xpd = FALSE)
+  }
+  
+  mtext(bquote(bold(.(plot_title) ~ "|" ~
+                      "Optimal" ~ lambda[1] == .(round(opt_l1, 3)) ~ "|" ~
+                      "Optimal" ~ lambda[2] == .(round(opt_l2, 3)))),
+        outer = TRUE, cex = 1.5, line = 1)
+  
+  par(mfrow = c(1, 1))
+}
+```
+
+```{r, fig.width=15, fig.height=5}
+plot_bic_3d(grid_out, "Coarse Grid Search")
+plot_bic_3d(grid_out_refined, "Refined Grid Search")
+```
+
+```{r}
+pdf(file = file.path(pdf_folder, "FusedLasso3D_BIC_surface_coarse_grid.pdf"), 
+    width = 15, height = 5)
+plot_bic_3d(grid_out, "Coarse Grid Search")
+dev.off()
+
+pdf(file = file.path(pdf_folder, "BIC_surface_refined_grid.pdf"), 
+    width = 15, height = 5)
+plot_bic_3d(grid_out_refined, "FusedLasso3D_Refined Grid Search")
+dev.off()
 ```
 
 # 4. Final Model Fit and Reconstruction of the Space-Time Signal
