@@ -137,19 +137,14 @@ Using the `trendfilter(y, ord = 0)` function from the `genlasso` package, the al
 
 For each $\lambda$, the solver returns the estimated parameter vector $\hat{\beta}(\lambda)$ and the corresponding degrees of freedom $\text{df}(\lambda)$. In the 1D Fused Lasso setup, $\text{df}(\lambda)$ corresponds directly to the number of separated, constant temporal segments (the stable piecewise constant periods) generated on the timeline.
 
-#### Step 2: Robust and Independent Estimation of Temporal Noise ($\sigma^2$)
+#### Step 2: Estimation of Temporal Noise ($\sigma^2$)
 
-Before evaluating the models along the regularization path, a stable baseline noise scale parameter is estimated directly from the raw data. This estimate is computed independently for each pixel's history using a temporal first-difference von Neumann estimator (Lag-1):
+Before evaluating the models along the regularization path, a baseline noise variance is estimated independently for each pixel's temporal history. This estimate is based on the second-order temporal discrete difference estimator:
 
-$$\hat{\sigma}^2 = \frac{1}{2(T-1)} \sum_{t=1}^{T-1} (y_{t+1} - y_t)^2$$
+$$\hat{\sigma}^2 = \frac{1}{6(T-2)} \sum_{t=2}^{T-1} (y_{t+1} - 2y_t + y_{t-1})^2$$
 
-- **Why at Lag-1?** Unlike spatial modeling (where atmospheric light diffusion and optical sensor blurring create artificial dependencies between adjacent pixels) the temporal domain is free from physical sensor diffusion across quarters. Taking first differences between successive quarters effectively neutralizes the underlying long-term structural trends, successfully isolating the pure stochastic noise.
-
-- **Why the** $\frac{1}{2}$ scaling factor? By definition, the variance of the difference between two independent and identically distributed random variables is the sum of their individual variances:
-
-  $$\text{Var}(A - B) = \text{Var}(A) + \text{Var}(B) = 2\sigma^2$$
-
-  Therefore, the coefficient $\frac{1}{2}$ corrects this mathematical duplication, yielding an unbiased estimation of the background noise.
+- **Why Second-Order Differences?** Second-order temporal differences eliminate constant and linear components of the underlying signal. Consequently, they reduce the influence of locally linear temporal trends, such as gradual increases in nighttime-light intensity, when estimating the background noise variance. However, nonlinear temporal patterns, abrupt structural changes, and local curvature may still contribute to the estimate.
+- **Why the** $\frac{1}{6}$ **scaling factor?** The variance scaling factor is derived from the sum of the squared coefficients of the second-order difference operator ($\sum c_k^2 = 1^2 + (-2)^2 + 1^2 = 6$). Under the assumption of independent and identically distributed errors with constant variance $\sigma^2$, the variance of the second-order error difference is $6\sigma^2$. Therefore, dividing the mean squared second-order differences by 6 provides an unbiased estimate of the error variance when the underlying signal is locally linear.
 
 #### Step 3: Pathwise Evaluation of the Variance-Scaled BIC Score
 
@@ -213,9 +208,13 @@ for (i in seq_len(n_cells)) {
   residuals <- sweep(beta_path, 1, y_i, "-")
   rss_vec   <- colSums(residuals^2)
   
-  # Robust estimation of Error Variance via First Differences
-  sig2_est <- mean(diff(y_i)^2) / 2
-  if (sig2_est <= 0) sig2_est <- 1e-6
+  # Estimation of Temporal Noise Variance via Second-Order Differences
+  sig2_est <- mean(diff(y_i, differences = 2)^2, na.rm = TRUE) / 6
+  
+  # Numerical safeguard
+  if (!is.finite(sig2_est) || sig2_est <= 0) {
+    sig2_est <- 1e-6
+  }
   
   # Compute the stable canonical BIC score vector
   bic_vec <- (rss_vec / sig2_est) + (df_vec * log(T_layers))
@@ -230,6 +229,93 @@ for (i in seq_len(n_cells)) {
   # Store the noise variance estimate for this pixel (used later for trend classification)
   sig2_est_vec[i] <- sig2_est
 }
+```
+
+```{r}
+# Automatically select the pixel (row of Y) with the highest variance over time
+i <- which.max(apply(Y, 1, var))
+y_i <- as.numeric(Y[i, ])
+
+fit_i     <- genlasso::trendfilter(y = y_i, ord = 0)
+beta_path <- as.matrix(fit_i$beta)
+df_vec    <- fit_i$df
+rss_vec   <- colSums(sweep(beta_path, 1, y_i, "-")^2)
+
+sig2_est <- mean(diff(y_i, differences = 2)^2, na.rm = TRUE) / 6
+if (!is.finite(sig2_est) || sig2_est <= 0) {
+  sig2_est <- 1e-6
+}
+bic_vec  <- rss_vec / sig2_est + df_vec * log(T_layers)
+
+best_idx <- which.min(bic_vec)
+K <- length(bic_vec)
+
+cat(sprintf("pixel %d | path steps = %d | optimal step = %d\n", i, K, best_idx))
+cat(sprintf("lambda* = %.4f | df* = %d | min BIC = %.2f\n",
+            fit_i$lambda[best_idx], df_vec[best_idx], bic_vec[best_idx]))
+cat(sprintf("BIC at the first step (lambda max, df = %d): %.2f\n", df_vec[1], bic_vec[1]))
+cat(sprintf("BIC at the last step (lambda = %.3g, df = %d): %.2f\n",
+            fit_i$lambda[K], df_vec[K], bic_vec[K]))
+cat("Internal minimum along the path (U-shape):", best_idx > 1 && best_idx < K, "\n")
+
+d <- data.frame(lambda = fit_i$lambda, bic = bic_vec)
+d <- d[d$lambda > 0, ]   # lambda = 0 not representable on a log scale
+
+ggplot(d, aes(lambda, bic)) +
+  geom_line() + geom_point(size = 1) +
+  geom_vline(xintercept = fit_i$lambda[best_idx], linetype = "dashed", colour = "red") +
+  scale_x_log10() +
+  labs(x = expression(lambda ~ "(log)"), y = "scaled BIC",
+       title = paste("1D fused lasso: BIC along the path, pixel", i)) +
+  theme_minimal()
+```
+
+```{r}
+set.seed(1); idx <- sample(n_cells, 200)
+res <- t(sapply(idx, function(i) {
+  y <- as.numeric(Y[i, ])
+  f <- genlasso::trendfilter(y, ord = 0)
+  
+  s2 <- mean(diff(y, differences = 2)^2, na.rm = TRUE) / 6
+  
+  if (!is.finite(s2) || s2 <= 0) {
+    s2 <- 1e-6
+  }
+  
+  b <- colSums(sweep(as.matrix(f$beta), 1, y, "-")^2) / s2 +
+    f$df * log(length(y))
+  
+  k <- which.min(b)
+  
+  c(
+    df = f$df[k],
+    s2 = s2,
+    acf1 = acf(y - f$beta[, k], plot = FALSE)$acf[2],
+    interior = k > 1 && k < length(b)
+  )
+}))
+res
+```
+
+**Diagnostic results.** The model was evaluated on a random sample of 200 pixels. The selected solutions exhibit varying degrees of complexity (`df`), while the estimated noise variances (`s2`) remain positive and finite. Residual autocorrelation at lag 1 (`acf1`) is generally limited, although a few pixels show more pronounced values. Regarding `interior`, the BIC minimum lies within the solution path for 199 out of 200 pixels, indicating that the criterion generally selects intermediate solutions rather than boundary values. Overall, these results provide encouraging evidence of the model's stability, although they do not constitute a formal validation of residual independence.
+
+```{r}
+v <- apply(Y, 1, var); quiet <- order(v)[1:200]   # 200 pixels with lower variability
+a <- sapply(quiet, function(i) acf(diff(as.numeric(Y[i, ])), plot = FALSE)$acf[2])
+quantile(a, c(.05, .5, .95))
+```
+
+```{r}
+s2_lag <- function(y, k) mean((y[-seq_len(k)] - y[seq_len(length(y) - k)])^2) / 2
+sel <- function(y, s2) { f <- genlasso::trendfilter(y, ord = 0)
+b <- colSums(sweep(as.matrix(f$beta), 1, y)^2) / s2 + f$df * log(length(y)); f$df[which.min(b)] }
+cmp <- t(sapply(idx, function(i) { y <- as.numeric(Y[i, ])
+c(lag1 = sel(y, s2_lag(y, 1)), lag2 = sel(y, s2_lag(y, 2))) }))
+colMeans(cmp); cor(cmp[, 1], cmp[, 2], method = "spearman"); mean(cmp[, 1] > cmp[, 2])
+```
+
+```{r}
+median(best_lambdas) 
 ```
 
 ### Long-Term Trend Classification via Per-Pixel Noise Tolerance
@@ -319,9 +405,13 @@ plot_fused_lasso_bic <- function(trend_group_vector, group_name, output_folder =
   residuals_mat <- sweep(beta_path, 1, y_i, "-")
   rss_vec       <- colSums(residuals_mat^2)
   
-  # Estimate variance using the robust von Neumann lag-1 difference
-  sig2_est <- mean(diff(y_i)^2) / 2
-  if (sig2_est <= 0) sig2_est <- 1e-6
+  # Estimate variance using second-order temporal differences
+  sig2_est <- mean(diff(y_i, differences = 2)^2, na.rm = TRUE) / 6
+  
+  # Numerical safeguard
+  if (!is.finite(sig2_est) || sig2_est <= 0) {
+    sig2_est <- 1e-6
+  }
   
   # Calculate the Bayesian Information Criterion (BIC) path vector
   bic_vec <- (rss_vec / sig2_est) + (df_vec * log(T_layers))
@@ -388,7 +478,7 @@ plot_fused_lasso_bic <- function(trend_group_vector, group_name, output_folder =
     )) +
     labs(
       title = "1D Fused Lasso: BIC Path Selection",
-      subtitle = "Variance Estimated via Robust Temporal First-Difference (von Neumann Lag-1) Estimator",
+      subtitle = "Variance Estimated via Second-Order Temporal Differences",
       caption = paste0("Note: Calculated for reproducible random Pixel #", chosen_pixel_idx, " from the ", group_name, " dynamic group."),
       x = expression(log(lambda)),
       y = "Score Value",
@@ -442,6 +532,29 @@ set.seed(2485)
 plot_fused_lasso_bic(tending_increasing, "increasing", plots_output_folder)
 plot_fused_lasso_bic(tending_decreasing, "decreasing", plots_output_folder)
 plot_fused_lasso_bic(mostly_constant, "mostly constant", plots_output_folder)
+```
+
+```{r}
+s2_first <- mean(diff(y_i)^2, na.rm = TRUE) / 2
+
+s2_second <- mean(diff(y_i, differences = 2)^2,
+                  na.rm = TRUE) / 6
+
+c(
+  first_order = s2_first,
+  second_order = s2_second,
+  percentage_change = 100 * (s2_second - s2_first) / s2_first
+)
+```
+
+```{r}
+bic_first <- rss_vec / s2_first + df_vec * log(T_layers)
+bic_second <- rss_vec / s2_second + df_vec * log(T_layers)
+
+c(
+  lambda_first = fit_i$lambda[which.min(bic_first)],
+  lambda_second = fit_i$lambda[which.min(bic_second)]
+)
 ```
 
 ## 3. Reconstruct smoothed raster stack
