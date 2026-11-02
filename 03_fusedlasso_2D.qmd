@@ -873,11 +873,15 @@ While the Lag-K stride approach effectively removes local sensor blurring by exp
 
 The second-order difference operator along the horizontal and vertical grid axes is defined as:
 
-$$\Delta^{(2)} \mathbf{Y}_{i,j} = \mathbf{Y}_{i, j+1} - 2\mathbf{Y}_{i, j} + \mathbf{Y}_{i, j-1}$$
+$$
+\Delta^{(2)}_h \mathbf{Y}_{i,j} = \mathbf{Y}_{i, j+1} - 2\mathbf{Y}_{i, j} + \mathbf{Y}_{i, j-1} \qquad\qquad \Delta^{(2)}_v \mathbf{Y}_{i,j} = \mathbf{Y}_{i+1, j} - 2\mathbf{Y}_{i, j} + \mathbf{Y}_{i-1, j}
+$$
 
-The variance scale factor for this discrete operator is derived from the sum of the squared coefficients ($\sum c_k^2 = 1^2 + (-2)^2 + 1^2 = 6$). Evaluating this independently across both rows and columns yields the following variance estimator:
+The variance scale factor for this discrete operator is derived from the sum of the squared coefficients ($\sum c_k^2 = 1^2 + (-2)^2 + 1^2 = 6$). Evaluating this independently across both rows and columns yields the horizontal estimator $\hat{\sigma}^2_h = \frac{\text{mean}\left((\Delta^{(2)}_h \mathbf{Y})^2\right)}{6}$ and vertical estimator $\hat{\sigma}^2_v = \frac{\text{mean}\left((\Delta^{(2)}_v \mathbf{Y})^2\right)}{6}$. Averaging these two directional estimates yields the unified variance estimator:
 
-$$\hat{\sigma}^2_{\text{Diff2}} = \frac{1}{6} \left[ \text{mean}\left( (\Delta^{(2)}_h \mathbf{Y})^2 \right) + \text{mean}\left( (\Delta^{(2)}_v \mathbf{Y})^2 \right) \right]$$
+$$
+\hat{\sigma}^2_{\text{Diff2}} = \frac{1}{2} \left( \frac{\text{mean}\left( (\Delta^{(2)}_h \mathbf{Y})^2 \right)}{6} + \frac{\text{mean}\left( (\Delta^{(2)}_v \mathbf{Y})^2 \right)}{6} \right) = \frac{\text{mean}\left( (\Delta^{(2)}_h \mathbf{Y})^2 \right) + \text{mean}\left( (\Delta^{(2)}_v \mathbf{Y})^2 \right)}{12}
+$$
 
 ```{r}
 # 1. Reshape Original Data Vector to 2D Spatial Grid
@@ -887,8 +891,8 @@ mat_grid <- matrix(y_vec, nrow = nrow_k, ncol = ncol_k, byrow = TRUE)
 diff2_h <- mat_grid[, 3:ncol(mat_grid)] - 2 * mat_grid[, 2:(ncol(mat_grid)-1)] + mat_grid[, 1:(ncol(mat_grid)-2)]
 diff2_v <- mat_grid[3:nrow(mat_grid), ] - 2 * mat_grid[2:(nrow(mat_grid)-1), ] + mat_grid[1:(nrow(mat_grid)-2), ]
 
-# 3. Estimate Error Variance via Second-Order Differences (scaled by 6 for rows and columns)
-sig2_est_diff2 <- (mean(diff2_h^2) / 6) + (mean(diff2_v^2) / 6)
+# 3. Estimate Error Variance via Second-Order Differences (scaled by 6 per direction, averaged -> / 12)
+sig2_est_diff2 <- (mean(diff2_h^2) + mean(diff2_v^2)) / 12
 
 # 4. Compute Sparsity-Stable BIC Score with Second-Order Variance
 bic_values_diff2 <- (rss / sig2_est_diff2) + (df_vec * log(n))
@@ -1237,8 +1241,8 @@ for (f in files_to_process) {
   diff2_h <- mat_grid[, 3:ncol(mat_grid)] - 2 * mat_grid[, 2:(ncol(mat_grid)-1)] + mat_grid[, 1:(ncol(mat_grid)-2)]
   diff2_v <- mat_grid[3:nrow(mat_grid), ] - 2 * mat_grid[2:(nrow(mat_grid)-1), ] + mat_grid[1:(nrow(mat_grid)-2), ]
   
-  # 3. Estimate Error Variance via Second-Order Differences (scaled by 6 for rows and columns)
-  sig2_est_diff2 <- (mean(diff2_h^2) / 6) + (mean(diff2_v^2) / 6)
+  # 3. Estimate Error Variance via Second-Order Differences (scaled by 6 per direction, averaged -> / 12)
+  sig2_est_diff2 <- (mean(diff2_h^2) + mean(diff2_v^2)) / 12
   
   # 4. Compute Sparsity-Stable BIC Score with Second-Order Variance
   bic_values_diff2 <- (rss / sig2_est_diff2) + (df_vec * log(n))
