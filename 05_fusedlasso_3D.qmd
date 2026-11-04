@@ -933,7 +933,7 @@ pdf(file = file.path(pdf_folder, "FusedLasso3D_BIC_surface_coarse_grid.pdf"),
 plot_bic_3d(grid_out, "Coarse Grid Search")
 dev.off()
 
-pdf(file = file.path(pdf_folder, "BIC_surface_refined_grid.pdf"), 
+pdf(file = file.path(pdf_folder, "FusedLasso3D_BIC_surface_refined_grid.pdf"), 
     width = 15, height = 5)
 plot_bic_3d(grid_out_refined, "FusedLasso3D_Refined Grid Search")
 dev.off()
@@ -1434,6 +1434,20 @@ sum(B_chk[, 2] != B_chk[, 1])                 # strict
 sum(abs(B_chk[, 2] - B_chk[, 1]) > 1e-6)      # with tolerance
 ```
 
+```{r}
+# Sanity check: does snapping give exactly identical values to fused pixels?
+# Sanity check on the dry-run replication (b = 1): a strict != comparison and one with
+# tolerance 1e-6 must return the same count, so no numerical residuals are mistaken for changes.
+# The count itself does not need to be zero: it is the number of pixels with a false change
+# between Q1 and Q2 (identical true signal), a statistical result that depends on the
+# strength of the regularization.
+
+B_chk <- matrix(beta_b, ncol = T_sim)
+n_strict <- sum(B_chk[, 2] != B_chk[, 1]); n_tol <- sum(abs(B_chk[, 2] - B_chk[, 1]) > 1e-6)
+stopifnot(n_strict == n_tol)                      # snapping: no numerical residuals
+c(false_change_pixels_Q1_Q2 = n_tol)              # statistical result, not an error
+```
+
 ### Monte Carlo Loop
 
 In each replication, fresh Gaussian noise is added to the fixed ground truth, lambda is selected by BIC on the full grid, and the ADMM fit is snapped to clusters. For each replication we store the overall MSE, the selected lambdas, and the following metrics.
@@ -1509,6 +1523,12 @@ system.time(
     B_b  <- matrix(beta_b,     ncol = T_sim)
     Tr_b <- matrix(truth_vec,  ncol = T_sim)
     
+    # Snapping invariant used by detect(): the strict and the tolerance-based change flags must coincide,
+    # otherwise numerical residuals would be counted as changes (false positives)
+    for (t in 1:(T_sim - 1)) {
+      stopifnot(sum(B_b[, t + 1] != B_b[, t]) == sum(abs(B_b[, t + 1] - B_b[, t]) > 1e-6))
+    }
+    
     # MSE of a temporal difference (layer t+1 minus layer t) against the true difference
     mse_diff <- function(M, t) mean(((M[, t + 1] - M[, t]) - (Tr_b[, t + 1] - Tr_b[, t]))^2)
     
@@ -1547,12 +1567,24 @@ system.time(
                            center_q1 = center_est[1], center_q2 = center_est[2], center_q3 = center_est[3],
                            n_clusters   = length(unique(round(beta_b, 8))),
                            lambda1      = grid_b$best$lambda1,
-                           lambda2      = grid_b$best$lambda2)
+                           lambda2      = grid_b$best$lambda2,
+                           sigma2_est   = grid_b$sigma2_est,       # noise variance estimate (true value: sigma_sim^2 = 0.04)
+                           n_iter       = fit_b$n_iter,            # must be < 500, otherwise the final fit did not converge
+                           # optimum at a grid boundary (lambda = 0, smallest positive value, or largest value)
+                           edge_l1 = grid_b$best$lambda1 %in% c(0, min(lambda1_grid_sim[lambda1_grid_sim > 0]), max(lambda1_grid_sim)),
+                           edge_l2 = grid_b$best$lambda2 %in% c(0, min(lambda2_grid_sim[lambda2_grid_sim > 0]), max(lambda2_grid_sim)))
   }
 )
 
 res <- do.call(rbind, res)
 head(res)
+```
+
+```{r}
+# Post-loop checks
+summary(res$n_iter)                                  # the maximum must stay below 500
+colMeans(res[, c("edge_l1", "edge_l2")])             # should be close to 0; otherwise widen the grid
+c(sigma2_mean = mean(res$sigma2_est), true = sigma_sim^2)
 ```
 
 Visualization of a single replication: ground truth (top row), noisy observed data (middle row) and fused lasso estimate (bottom row), on the same color scale. The replication is re-fitted using the lambdas selected during the Monte Carlo loop.
@@ -2066,7 +2098,7 @@ system.time(
     set.seed(1000 + b)
     y_b <- as.vector(truth_vec_t2 + rnorm(length(truth_vec_t2), 0, sigma_sim_t2))
     
-    grid_b <- grid_search_lambda(y = y_b, dims = t2,
+    grid_b <- grid_search_lambda(y = y_b, dims = dims_t2,
                                  D_space = D_space_t2, D_time = D_time_t2,
                                  lambda1_grid = lambda1_grid_t2,
                                  lambda2_grid = lambda2_grid_t2, n_cores = 1)
@@ -2083,6 +2115,12 @@ system.time(
     # cells x quarters matrices
     Y_b <- matrix(y_b,    ncol = T_sim_t2)
     B_b <- matrix(beta_b, ncol = T_sim_t2)
+    
+    # Snapping invariant used by detect(): the strict and the tolerance-based change flags must coincide,
+    # otherwise numerical residuals would be counted as changes (false positives)
+    for (t in 1:(T_sim_t2 - 1)) {
+      stopifnot(sum(B_b[, t + 1] != B_b[, t]) == sum(abs(B_b[, t + 1] - B_b[, t]) > 1e-6))
+    }
     
     det12 <- detect(B_b, 1)
     det23 <- detect(B_b, 2)
@@ -2110,6 +2148,11 @@ system.time(
       n_clusters   = length(unique(round(beta_b, 8))),
       lambda1      = grid_b$best$lambda1,
       lambda2      = grid_b$best$lambda2,
+      sigma2_est   = grid_b$sigma2_est,       # noise variance estimate (true value: sigma_sim_t2^2)
+      n_iter       = fit_b$n_iter,            # must be < 500, otherwise the final fit did not converge
+      # optimum at a grid boundary (lambda = 0, smallest positive value, or largest value)
+      edge_l1 = grid_b$best$lambda1 %in% c(0, min(lambda1_grid_t2[lambda1_grid_t2 > 0]), max(lambda1_grid_t2)),
+      edge_l2 = grid_b$best$lambda2 %in% c(0, min(lambda2_grid_t2[lambda2_grid_t2 > 0]), max(lambda2_grid_t2)),
       row.names = NULL
     )
   }
@@ -2117,6 +2160,13 @@ system.time(
 
 res <- do.call(rbind, res)
 head(res)
+```
+
+```{r}
+# Post-loop checks
+summary(res$n_iter)                                  # the maximum must stay below 500
+colMeans(res[, c("edge_l1", "edge_l2")])             # should be close to 0; otherwise widen the grid
+c(sigma2_mean = mean(res$sigma2_est), true = sigma_sim_t2^2)
 ```
 
 Visualization of a single replication: ground truth (top row), noisy observed data (middle row) and fused lasso estimate (bottom row), on the same color scale. The replication is re-fitted using the lambdas selected during the Monte Carlo loop. Change `b_show` to inspect other replications, for example the one where the estimate is worst.
