@@ -318,6 +318,11 @@ colMeans(cmp); cor(cmp[, 1], cmp[, 2], method = "spearman"); mean(cmp[, 1] > cmp
 median(best_lambdas) 
 ```
 
+```{r}
+mean(res[, "acf1"])
+median(res[, "acf1"])
+```
+
 ### Long-Term Trend Classification via Per-Pixel Noise Tolerance
 
 ```{r}
@@ -938,6 +943,7 @@ plot_observed_vs_fused <- function(pixel_vector, group_name, original_stack, smo
   # Define destination file path using the group name and pixel ID, then save to disk
   clean_group_name <- gsub(" ", "_", group_name)
   plot_output_path <- file.path(plots_output_folder, paste0("FusedLasso1D_Pixel_Trajectories_", clean_group_name, ".png"))
+  plot_output_path_pdf <- file.path(pdf_folder, paste0("FusedLasso1D_Pixel_Trajectories_", clean_group_name, ".pdf"))
   
   ggsave(
     filename = plot_output_path,
@@ -945,6 +951,14 @@ plot_observed_vs_fused <- function(pixel_vector, group_name, original_stack, smo
     width = 12,
     height = 6,
     dpi = 300,
+    bg = "white"
+  )
+  ggsave(
+    filename = plot_output_path_pdf,
+    plot = p,
+    width = 12,
+    height = 6,
+    device = cairo_pdf,
     bg = "white"
   )
 
