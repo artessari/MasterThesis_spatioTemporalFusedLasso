@@ -794,6 +794,26 @@ ggsave(
 ```
 
 ```{r}
+print(top_peaks[, c("transition", "sum")])
+```
+
+```{r}
+S <- 1710 
+
+top_peaks$mean_change <- top_peaks$sum / S
+top_peaks$pct_growth  <- (exp(top_peaks$mean_change) - 1) * 100
+
+results_table <- data.frame(
+  Transition = top_peaks$transition,
+  Total_Sum = round(top_peaks$sum, 2),
+  Mean_Change = round(top_peaks$mean_change, 2),
+  Percent_Growth = round(top_peaks$pct_growth, 1)
+)
+
+print(results_table)
+```
+
+```{r}
 # Maximum absolute change for symmetric color scaling (kept consistent
 # across all change maps for comparability)
 max_abs <- max(abs(terra::values(r_changes_stack)), na.rm = TRUE)
