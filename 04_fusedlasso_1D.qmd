@@ -992,3 +992,54 @@ plot_observed_vs_fused(tending_increasing, "Increasing", r_stack, r_smooth_stack
 plot_observed_vs_fused(tending_decreasing, "Decreasing", r_stack, r_smooth_stack)
 plot_observed_vs_fused(mostly_constant, "Mostly Constant", r_stack, r_smooth_stack)
 ```
+
+```{r}
+# Mean level across pixels: observed vs 1D fit
+qn <- names(r_stack)                         # "2012 Q1", ...
+lvl1d <- data.frame(quarter  = qn,
+                    mean_obs = colMeans(Y, na.rm = TRUE),
+                    mean_fit = colMeans(beta_mat))
+lvl1d$d_obs <- c(NA, diff(lvl1d$mean_obs))
+lvl1d$d_fit <- c(NA, diff(lvl1d$mean_fit))
+lvl1d$gap   <- lvl1d$mean_obs - lvl1d$mean_fit    # shrinkage of the level
+
+# Around the 2022 shock and around the 2018 one
+print(lvl1d[40:47, ], digits = 3)    # 2021 Q4 ... 2023 Q3
+print(lvl1d[25:33, ], digits = 3)    # 2018 Q1 ... 2019 Q4
+
+# The 2022 Q2 -> Q3 transition pixel by pixel
+t  <- which(qn == "2022 Q2")
+df <- beta_mat[, t + 1] - beta_mat[, t]
+do <- Y[, t + 1]        - Y[, t]
+c(mean_fit_change   = mean(df),
+  mean_abs_fit      = mean(abs(df)),     # should be about 0.19
+  mean_obs_change   = mean(do),          # should be about 0.35
+  share_fit_up      = mean(df > 0),
+  share_fit_zero    = mean(df == 0),
+  share_obs_up      = mean(do > 0))
+```
+
+```{r}
+median(do)    # observed median change 2022 Q2 -> Q3, expected about 0.40
+```
+
+```{r}
+## save the 1D estimates
+saveRDS(beta_mat, file.path("output_fits", "beta_mat_1d.rds"))
+```
+
+```{r}
+# Check: total df, RSS and RMSE of the 1D model, from the fitted trajectories
+tol <- 1e-6
+n_changes <- rowSums(abs(beta_mat[, 2:T_layers] - beta_mat[, 1:(T_layers - 1)]) > tol)
+df_pix    <- 1 + n_changes                     # constant segments per pixel
+
+tot_df  <- sum(df_pix)
+tot_rss <- sum((Y - beta_mat)^2)
+n_obs   <- n_cells * T_layers
+
+cat("Total df :", tot_df, "\n")
+cat("Total RSS:", tot_rss, "\n")
+cat("RMSE     :", sqrt(tot_rss / n_obs), "\n")
+cat("Mean segments per pixel:", mean(df_pix), "\n")
+```

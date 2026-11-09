@@ -1896,7 +1896,7 @@ ggsave(file.path(pdf_folder, "FusedLasso2D_lambda_by_quarter.pdf"),
 ```{r, fig.height=5}
 # Figure: strip of selected quarters (observed on top, 2D estimate below)
 
-sel_tags <- c("2012_Q1", "2016_Q1", "2019_Q4", "2022_Q2", "2022_Q3", "2025_Q4")  # edit here
+sel_tags <- c("2012_Q1", "2016_Q1", "2019_Q3", "2022_Q2", "2022_Q3", "2025_Q4")  
 sel_base <- paste0("ntl_", sel_tags, "_kampala")
 
 r_obs_sel <- rast(lapply(sel_base, function(b) rast(files_to_process[grepl(b, files_to_process, fixed = TRUE)][1])))
@@ -1917,7 +1917,7 @@ p_strip <- ggplot() +
   coord_sf(expand = FALSE) +
   theme_minimal() +
   theme(panel.spacing = unit(1, "mm"),
-        strip.text = element_text(size = 10),
+        strip.text = element_text(size = 14),
         legend.key.height = unit(1.2, "cm"),
         legend.title = element_text(hjust = 0.5),
         axis.title = element_blank(), axis.text = element_blank(), axis.ticks = element_blank())
@@ -1983,4 +1983,74 @@ p_bic
 # 4) Save
 ggsave(file.path(pdf_folder, "FusedLasso2D_bic_overlay.pdf"),
        p_bic, width = 12, height = 6, bg = "white")
+```
+
+```{r}
+# Mean and median log-radiance of each quarter (observed and 2D estimate)
+tag_of <- function(f) sub("^ntl_(\\d{4}_Q\\d)_kampala$", "\\1",
+                          tools::file_path_sans_ext(basename(f)))
+
+lvl <- do.call(rbind, lapply(files_to_process, function(f) {
+  b   <- tools::file_path_sans_ext(basename(f))
+  obs <- as.numeric(terra::values(rast(f)))
+  est <- as.numeric(terra::values(smoothed_rasters[[b]]))
+  data.frame(quarter = tag_of(f),
+             mean_obs = mean(obs, na.rm = TRUE), median_obs = median(obs, na.rm = TRUE),
+             mean_est = mean(est, na.rm = TRUE), median_est = median(est, na.rm = TRUE))
+}))
+lvl$diff_mean_obs <- c(NA, diff(lvl$mean_obs))
+lvl$diff_mean_est <- c(NA, diff(lvl$mean_est))
+
+# The quarters of the figure
+sel_tags <- c("2012_Q1", "2016_Q1", "2019_Q3", "2022_Q2", "2022_Q3", "2025_Q4")
+print(lvl[lvl$quarter %in% sel_tags, ], digits = 3)
+
+# Largest quarter-to-quarter increases of the mean level
+head(lvl[order(-lvl$diff_mean_obs), c("quarter", "diff_mean_obs", "diff_mean_est")], 5)
+
+# 2022 Q2 -> Q3 pixel by pixel
+get_vals <- function(tag, est = FALSE) {
+  b <- paste0("ntl_", tag, "_kampala")
+  if (est) as.numeric(terra::values(smoothed_rasters[[b]]))
+  else as.numeric(terra::values(rast(files_to_process[grepl(b, files_to_process, fixed = TRUE)][1])))
+}
+for (est in c(FALSE, TRUE)) {
+  d <- get_vals("2022_Q3", est) - get_vals("2022_Q2", est)
+  cat(ifelse(est, "2D estimate", "Observed"),
+      ": share of pixels increasing =", round(mean(d > 0, na.rm = TRUE), 3),
+      "| median change =", round(median(d, na.rm = TRUE), 3), "\n")
+}
+```
+
+```{r}
+lvl[26:33, c("quarter", "mean_obs", "diff_mean_obs")]   # 2018 Q2 ... 2019 Q4
+lvl[41:47, c("quarter", "mean_obs", "diff_mean_obs")]   # 2022 Q1 ... 2023 Q3
+```
+
+```{r}
+## save the 2D estimates as a multi-layer raster
+chk <- sub("ntl_(\\d{4})_(Q\\d)_kampala", "\\1 \\2", names(smoothed_rasters))
+print(head(chk)); print(length(chk))       # must be 56 and chronological
+terra::writeRaster(terra::rast(smoothed_rasters),
+                   file.path("output_fits", "smoothed_2d_stack.tif"), overwrite = TRUE)
+```
+
+```{r}
+# Check: total df, RSS and RMSE of the 2D model, from the per-quarter selected fits
+sel <- sapply(files_to_process, function(f) {
+  base_name <- tools::file_path_sans_ext(basename(f))
+  fit   <- get(paste0("fit_", base_name), envir = .GlobalEnv)
+  y_vec <- as.numeric(terra::values(rast(f)))
+  rss   <- colSums((as.matrix(fit$beta) - y_vec)^2)
+  idx   <- which.min(bic_results[[base_name]])      # same index used to select lambda
+  c(df = unname(fit$df[idx]), rss = unname(rss[idx]))
+})
+
+tot_df  <- sum(sel["df", ])
+tot_rss <- sum(sel["rss", ])
+n_obs   <- 1710 * 56
+
+cat("Total df :", tot_df, "\n")
+cat("Total RSS:", tot_rss, "\n")
+cat("RMSE     :", sqrt(tot_rss / n_obs), "\n")
 ```
