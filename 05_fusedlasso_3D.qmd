@@ -1269,6 +1269,305 @@ stopifnot(corr > 0.999)   # snap should not distort the fit substantially
 cat("\nAll fusion consistency checks passed.\n")
 ```
 
+## --- Figures and statistics for the 3D section of Chapter 5
+
+```{r}
+qn <- names(r_stack)       # "2012 Q1", "2012 Q2", ...
+Tn <- T_layers             # 56
+shared_dir <- "output_fits"   # <- folder where the 1D and 2D estimates are saved (adapt)
+```
+
+```{r}
+## load the 1D and 2D estimates
+beta_1d <- readRDS(file.path(shared_dir, "beta_mat_1d.rds"))
+r_2d    <- terra::rast(file.path(shared_dir, "smoothed_2d_stack.tif"))
+names(r_2d) <- qn
+stopifnot(nrow(beta_1d) == n_cells, ncol(beta_1d) == Tn, terra::nlyr(r_2d) == Tn)
+```
+
+```{r, fig.height=7.5}
+# Figure: observed / 2D / 3D estimate for the selected quarters
+sel <- c("2012 Q1", "2016 Q1", "2019 Q3", "2022 Q2", "2022 Q3", "2025 Q4")
+
+r_strip3 <- c(r_stack[[sel]], r_2d[[sel]], r_smoothed[[sel]])
+ids <- c(paste0("obs_", seq_along(sel)), paste0("est2d_", seq_along(sel)), paste0("est3d_", seq_along(sel)))
+names(r_strip3) <- ids
+lab_vec <- setNames(c(paste0(sel, "\nObserved"), paste0(sel, "\n2D estimate"), paste0(sel, "\n3D estimate")), ids)
+
+zlim3 <- range(c(terra::values(r_stack), terra::values(r_2d), terra::values(r_smoothed)), na.rm = TRUE)
+
+p_strip3 <- ggplot() +
+  geom_spatraster(data = r_strip3) +
+  facet_wrap(~lyr, ncol = length(sel), labeller = as_labeller(lab_vec)) +
+  scale_fill_viridis_c(option = "viridis", na.value = "transparent",
+                       name = expression(log(NTL)), limits = zlim3) +
+  coord_sf(expand = FALSE) +
+  theme_minimal() +
+  theme(panel.spacing = unit(1, "mm"),
+        strip.text = element_text(size = 14),
+        legend.key.height = unit(1.2, "cm"),
+        legend.title = element_text(hjust = 0.5),
+        axis.title = element_blank(), axis.text = element_blank(), axis.ticks = element_blank())
+p_strip3
+
+ggsave(file.path(pdf_folder, "FusedLasso3D_obs_2D_3D_selected_quarters.pdf"),
+       p_strip3, width = 12, height = 7.5, bg = "white")
+```
+
+```{r, fig.height=9}
+# Figure: trajectories of the three representative pixels (observed, 1D, 3D)
+pix <- c("Increasing (pixel #1492)" = 1492,
+         "Decreasing (pixel #856)" = 856,
+         "Mostly constant (pixel #1076)" = 1076)
+
+traj <- do.call(rbind, lapply(names(pix), function(nm) {
+  i <- pix[[nm]]
+  data.frame(panel = nm, t = 1:Tn,
+             Observed = as.numeric(Y[i, ]), `1D` = as.numeric(beta_1d[i, ]),
+             `3D` = as.numeric(beta_array[i, ]), check.names = FALSE)
+})) %>%
+  pivot_longer(c(Observed, `1D`, `3D`), names_to = "Series", values_to = "value")
+traj$panel  <- factor(traj$panel, levels = names(pix))
+traj$Series <- factor(traj$Series, levels = c("Observed", "1D", "3D"))
+
+brk <- seq(1, Tn, by = 4)
+p_traj <- ggplot(traj, aes(t, value, colour = Series, linewidth = Series)) +
+  geom_line() +
+  facet_wrap(~panel, ncol = 1, scales = "free_y") +
+  scale_colour_manual(values = c("Observed" = "grey40", "1D" = "steelblue", "3D" = "firebrick")) +
+  scale_linewidth_manual(values = c("Observed" = 0.4, "1D" = 0.9, "3D" = 0.9)) +
+  scale_x_continuous(breaks = brk, labels = qn[brk]) +
+  labs(title = "Pixel Trajectories: Observed, 1D and 3D Fused Lasso",
+       x = "Quarter", y = "Log Nighttime Lights", colour = NULL, linewidth = NULL) +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        plot.title = element_text(face = "bold", hjust = 0.5, size = 18),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+        axis.text.y = element_text(size = 12), axis.title = element_text(size = 14),
+        strip.text = element_text(face = "bold", size = 13), legend.text = element_text(size = 13))
+p_traj
+
+ggsave(file.path(pdf_folder, "FusedLasso3D_pixel_trajectories.pdf"),
+       p_traj, width = 12, height = 9, bg = "white")
+```
+
+```{r}
+# Figure: city-wide change intensity over time (1D vs 3D)
+chg1 <- beta_1d[, 2:Tn]    - beta_1d[, 1:(Tn - 1)]
+chg3 <- beta_array[, 2:Tn] - beta_array[, 1:(Tn - 1)]
+trans <- paste0(qn[1:(Tn - 1)], " → ", qn[2:Tn])
+
+int_df <- data.frame(
+  t_index = rep(1:(Tn - 1), 2), quarter_label = rep(qn[1:(Tn - 1)], 2),
+  transition = rep(trans, 2), model = rep(c("1D", "3D"), each = Tn - 1),
+  intensity = c(colSums(abs(chg1)), colSums(abs(chg3))))
+
+top3_3d <- int_df %>% filter(model == "3D") %>% arrange(desc(intensity)) %>% slice(1:3)
+print(top3_3d)
+print(data.frame(transition = trans, n_pixels_changing_3d = colSums(chg3 != 0),
+                 intensity_3d = colSums(abs(chg3)))[order(-colSums(abs(chg3)))[1:5], ])
+
+p_int <- ggplot(int_df, aes(t_index, intensity, colour = model)) +
+  geom_line(linewidth = 0.6) + geom_point(size = 1.2) +
+  geom_point(data = top3_3d, colour = "firebrick", size = 2.5) +
+  geom_text(data = top3_3d, aes(label = transition), colour = "firebrick",
+            vjust = -1, size = 5, fontface = "bold") +
+  scale_colour_manual(values = c("1D" = "steelblue", "3D" = "darkorange"), name = NULL) +
+  scale_x_continuous(breaks = seq(1, Tn - 1, by = 4), labels = qn[seq(1, Tn - 1, by = 4)]) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))) +
+  labs(title = "City-Wide Change Intensity Over Time: 1D vs 3D",
+       subtitle = "Sum of |quarter-to-quarter change| across all pixels — red points mark the 3 largest shocks of the 3D model",
+       x = "Quarter", y = "Total absolute change (log-NTL)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 13),
+        axis.title = element_text(size = 14), axis.text = element_text(size = 13),
+        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 14, color = "gray40", hjust = 0.5),
+        legend.position = "bottom", legend.text = element_text(size = 14))
+p_int
+
+ggsave(file.path(pdf_folder, "FusedLasso3D_change_timeline.pdf"),
+       p_int, width = 12, height = 6, bg = "white")
+```
+
+```{r}
+# Figure: spatial distribution of the 3 largest shocks of the 3D model
+r_changes3 <- r_smoothed[[2:Tn]] - r_smoothed[[1:(Tn - 1)]]
+names(r_changes3) <- trans
+max_abs3 <- max(abs(terra::values(r_changes3)), na.rm = TRUE)
+peak_idx <- sort(top3_3d$t_index)
+
+bbox  <- sf::st_bbox(r_changes3[[1]])
+pad_x <- (bbox["xmax"] - bbox["xmin"]) * 0.02
+pad_y <- (bbox["ymax"] - bbox["ymin"]) * 0.02
+
+peak_maps3 <- lapply(peak_idx, function(t) {
+  r_df <- as.data.frame(r_changes3[[t]], xy = TRUE); names(r_df)[3] <- "value"
+  zero_pixels <- dplyr::filter(r_df, value == 0)
+  ggplot() +
+    geom_spatraster(data = r_changes3[[t]]) +
+    scale_fill_gradient2(name = "Change\n(log-NTL)", low = "firebrick", mid = "white", high = "forestgreen",
+                         midpoint = 0, limits = c(-max_abs3, max_abs3), na.value = "white") +
+    geom_point(data = zero_pixels, aes(x = x, y = y), pch = "x", size = 1.5, stroke = 0.6, color = "black") +
+    coord_sf(xlim = c(bbox["xmin"] - pad_x, bbox["xmax"] + pad_x),
+             ylim = c(bbox["ymin"] - pad_y, bbox["ymax"] + pad_y), expand = FALSE) +
+    scale_x_continuous(breaks = scales::pretty_breaks(n = 4)) +
+    labs(title = names(r_changes3)[t]) +
+    theme_minimal() +
+    theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
+          axis.text.y = element_text(angle = 90, hjust = 0.5, size = 10),
+          axis.text.x = element_text(size = 10), axis.title = element_blank(),
+          legend.position = "none")
+})
+shared_legend3 <- cowplot::get_legend(
+  peak_maps3[[1]] + theme(legend.position = "bottom",
+                          legend.title = element_text(vjust = 1, size = 14),
+                          legend.text = element_text(size = 14),
+                          legend.box.margin = margin(t = 15)) +
+    guides(fill = guide_colorbar(barwidth = 15, barheight = 1)))
+
+top3_shocks3 <- wrap_plots(peak_maps3, nrow = 1) / shared_legend3 +
+  plot_layout(heights = c(10, 1)) +
+  plot_annotation(title = "Spatial Distribution of the 3 Largest City-Wide Shocks (3D Model)",
+                  caption = "'x' marks pixels with exactly zero change between quarters",
+                  theme = theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 18),
+                                plot.caption = element_text(hjust = 0.5, size = 14, color = "gray40", margin = margin(t = 15))))
+top3_shocks3
+
+ggsave(file.path(pdf_folder, "FusedLasso3D_top3_shocks.pdf"),
+       top3_shocks3, width = 12, height = 6, bg = "white")
+```
+
+```{r}
+# Clusters of the final fit: ids, sizes, temporal extent
+# (a cluster = connected component of fused edges in the space-time graph, as in compute_df())
+tol <- 1e-8
+el <- rbind(edge_pairs_space[abs(fit$z1) < tol, , drop = FALSE],
+            edge_pairs_time[abs(fit$z2) < tol, , drop = FALSE])
+g <- graph_from_edgelist(el, directed = FALSE)
+g <- add_vertices(g, length(y) - vcount(g))
+cl_id <- components(g)$membership
+stopifnot(length(cl_id) == length(y))
+cat("Number of clusters:", length(unique(cl_id)), "(should be 7739)\n")
+
+cl_size <- tabulate(cl_id)                 # size of cluster k = number of pixel-quarters
+sz <- sort(cl_size, decreasing = TRUE)
+print(c(n_clusters = length(sz), singletons = sum(sz == 1),
+        median_size = median(sz), largest = sz[1],
+        share_top1 = sz[1] / length(y), share_top10 = sum(sz[1:10]) / length(y),
+        share_top100 = sum(sz[1:100]) / length(y)))
+
+# Temporal extent: in how many quarters each cluster appears, and how many distinct pixels it contains
+t_of_cell <- rep(1:Tn, each = n_cells)
+p_of_cell <- rep(1:n_cells, times = Tn)
+span_t <- tapply(t_of_cell, cl_id, function(x) length(unique(x)))
+span_p <- tapply(p_of_cell, cl_id, function(x) length(unique(x)))
+print(c(share_clusters_multi_quarter = mean(span_t > 1),
+        share_cells_in_multi_quarter = sum(cl_size[span_t > 1]) / length(y),
+        median_quarters_spanned = median(span_t), max_quarters_spanned = max(span_t)))
+```
+
+```{r}
+# Number of distinct clusters present in each quarter (compare with the 2D patches)
+patches_per_quarter <- sapply(seq_len(Tn), function(t) length(unique(cl_id[((t - 1) * n_cells + 1):(t * n_cells)])))
+print(summary(patches_per_quarter))
+```
+
+```{r, fig.height=5}
+p_sizes <- ggplot(data.frame(size = cl_size), aes(size)) +
+  geom_histogram(bins = 40, fill = "steelblue", colour = "white") +
+  scale_x_log10() +
+  labs(x = "Cluster size (pixel-quarters, log scale)", y = "Number of clusters") +
+  theme_minimal(base_size = 14)
+cum <- data.frame(rank = seq_along(sz), share = cumsum(sz) / length(y))
+p_cum <- ggplot(cum, aes(rank, share)) +
+  geom_line(colour = "darkorange", linewidth = 0.8) + scale_x_log10() +
+  labs(x = "Cluster rank (log scale)", y = "Share of pixel-quarters covered") +
+  theme_minimal(base_size = 14)
+p_cl_stats <- p_sizes | p_cum
+p_cl_stats
+
+ggsave(file.path(pdf_folder, "FusedLasso3D_cluster_sizes.pdf"), p_cl_stats, width = 12, height = 5, bg = "white")
+```
+
+```{r}
+# Areas with similar temporal development (post-hoc grouping of the 3D trajectories)
+# NOTE: the 7739 clusters above are space-time regions with a constant value; they are NOT areas with similar development. Here the estimated trajectories (level removed, so that only the timing and shape of the change matter) are grouped with hierarchical clustering. This is an additional step on the 3D estimate, not an output of the penalty. Try k = 3,...,6.
+
+k_grp <- 4
+traj_c <- beta_array - rowMeans(beta_array)
+hc  <- hclust(dist(traj_c), method = "ward.D2")
+grp <- cutree(hc, k = k_grp)
+print(table(grp))
+
+xy <- terra::xyFromCell(r_stack, 1:n_cells)   # coordinates of the pixel centres
+
+map_g <- data.frame(x = xy[, 1], y = xy[, 2], group = factor(grp))
+traj_g <- do.call(rbind, lapply(1:k_grp, function(gg) {
+  data.frame(t = 1:Tn, group = factor(gg),
+             level = colMeans(beta_array[grp == gg, , drop = FALSE]))
+}))
+lab_g <- paste0("Group ", 1:k_grp, " (", as.integer(table(grp)), " pixels)")
+
+# Map of the groups (no legend: a single shared legend is collected below)
+p_map_g <- ggplot(map_g, aes(x, y, fill = group)) + geom_raster() +
+  scale_fill_brewer(palette = "Dark2", labels = lab_g, name = NULL) +
+  guides(fill = "none") +
+  coord_quickmap(expand = FALSE) + theme_minimal() +
+  theme(axis.title = element_blank(), axis.text = element_blank(),
+        axis.ticks = element_blank())
+
+# Mean trajectory of each group (its legend, with square keys, is shared by both panels)
+p_traj_g <- ggplot(traj_g, aes(t, level, colour = group)) +
+  geom_line(linewidth = 1, key_glyph = "rect") +
+  scale_colour_brewer(palette = "Dark2", labels = lab_g, name = NULL) +
+  scale_x_continuous(breaks = brk, labels = qn[brk]) +
+  labs(x = "Quarter", y = "Mean 3D estimate (log-NTL)") +
+  guides(colour = guide_legend(nrow = 1)) +
+  theme_minimal(base_size = 13) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p_groups <- (p_map_g | p_traj_g) +
+  plot_layout(guides = "collect") +
+  plot_annotation(title = "Groups of Pixels with Similar Temporal Development (3D Estimate)",
+                  theme = theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 18))) &
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = 14),
+        legend.key.size = unit(0.8, "cm"))
+p_groups
+
+ggsave(file.path(pdf_folder, "FusedLasso3D_pixel_groups.pdf"), p_groups,
+       width = 12, height = 6, bg = "white")
+```
+
+```{r}
+# Numbers for the comparison table (1D, 2D, 3D)
+# df = connected components of the graph that links adjacent cells with equal estimates
+
+n_obs <- length(y)
+v1 <- as.vector(beta_1d)                               # same layout as y (pixel + (t-1)*n_cells)
+v2 <- as.vector(as.matrix(terra::values(r_2d)))
+v3 <- as.vector(beta_final)
+
+count_comp <- function(v, edge_list, tol = 1e-6) {
+  keep <- abs(v[edge_list[, 1]] - v[edge_list[, 2]]) < tol
+  gg <- graph_from_edgelist(edge_list[keep, , drop = FALSE], directed = FALSE)
+  gg <- add_vertices(gg, length(v) - vcount(gg))
+  components(gg)$no
+}
+all_edges <- rbind(edge_pairs_space, edge_pairs_time)
+
+res <- data.frame(
+  model = c("1D", "2D", "3D"),
+  df    = c(count_comp(v1, edge_pairs_time),       # 1D: equal in time
+            count_comp(v2, edge_pairs_space),      # 2D: equal in space, within each quarter
+            count_comp(v3, all_edges)),            # 3D: equal in space and time
+  rss   = c(sum((y - v1)^2), sum((y - v2)^2), sum((y - v3)^2)))
+res$rmse     <- sqrt(res$rss / n_obs)
+res$df_share <- res$df / n_obs
+print(res, digits = 4)
+```
+
 \newpage
 
 # Simulation Study
