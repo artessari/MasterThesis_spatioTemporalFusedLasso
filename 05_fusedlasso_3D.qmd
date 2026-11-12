@@ -1568,6 +1568,43 @@ res$df_share <- res$df / n_obs
 print(res, digits = 4)
 ```
 
+```{r}
+# Noise sd by pixel (second-order temporal differences, as in the 1D model)
+d2_t   <- t(apply(Y, 1, function(y) diff(y, differences = 2)))   # n_cells x (Tn - 2)
+sd_pix <- sqrt(rowMeans(d2_t^2) / 6)
+
+# Noise sd by quarter (second-order spatial differences, as in the 2D model)
+sd_q <- sapply(1:Tn, function(t) {
+  m  <- matrix(Y[, t], nrow = 45, ncol = 38, byrow = TRUE)
+  dh <- m[, 3:38] - 2 * m[, 2:37] + m[, 1:36]
+  dv <- m[3:45, ] - 2 * m[2:44, ] + m[1:43, ]
+  sqrt((mean(dh^2) + mean(dv^2)) / 12)
+})
+
+summary(sd_pix); summary(sd_q)
+cat("Global 3D sigma:", sqrt(estimate_sigma2_2nd(y,dims)), "\n")
+```
+
+```{r}
+# Which quarters are noisiest, and do they match the large lambdas of the 2D model?
+data.frame(quarter = qn, sd_q = round(sd_q, 3))[order(-sd_q)[1:5], ]
+# cor(sd_q, lambda_2d_by_quarter)   # lambda_2d_by_quarter: the 56 selected 2D lambdas
+
+# Where are the noisiest pixels?
+which(sd_pix > 0.35)
+```
+
+```{r}
+r_sd <- r_stack[[1]]
+terra::values(r_sd) <- sd_pix
+terra::plot(r_sd, main = "Noise sd by pixel (second-order temporal differences)")
+```
+
+```{r}
+cor(sd_pix, rowMeans(Y))
+cor(sd_pix, rowMeans(Y), method = "spearman")
+```
+
 \newpage
 
 # Simulation Study
