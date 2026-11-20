@@ -10,6 +10,7 @@
 blackmarble_h5/
 bm_outputs/
 data/blackmarble_h5/**
+data/gadm/
 
 # === renv Library (Local) ===
 # Library excluded; essential files for environment restoration are kept
