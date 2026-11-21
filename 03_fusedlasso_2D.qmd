@@ -1181,8 +1181,13 @@ for (f in files_to_process) {
   # Define the absolute target destination path using the directory variable
   output_path <- file.path(fused_lasso_fits_folder, paste0("fit_", base_name, ".rds"))
   
+  # Drop the redundant objects before saving: for X = I, `fit` duplicates `beta`,
+  # and the dual path `u` is not used downstream
+  fit$u   <- NULL
+  fit$fit <- NULL
+  
   # Serialize and save the model object directly to the disk drive
-  saveRDS(fit, file = output_path)
+  saveRDS(fit, file = output_path, compress = "xz")
   
   # Advance the progress percentage and update the tokens for the next round
   pb$tick(tokens = list(current_file = base_name))
@@ -1428,6 +1433,15 @@ ggsave(
 ## 4. 5. Smoothed Raster Generation and Geometrical Integrity Check
 
 ```{r}
+x <- readRDS("../FusedLasso2D_original/fit_ntl_2021_Q2_kampala.rds")
+k <- c(1, 50, 300, 2000, length(x$lambda))
+
+a <- as.matrix(coef(x, lambda = x$lambda[k])$beta)
+b <- x$beta[, k]
+all.equal(a, b, check.attributes = FALSE)
+```
+
+```{r}
 # Initialize a list to store the final smoothed coefficients for each file
 smoothed_results <- list()
 
@@ -1449,8 +1463,9 @@ for (f in files_to_process) {
   # Extract the optimal lambda value from the model path
   selected_lambda <- fit$lambda[best_idx]
   
-  # Extract the smoothed beta coefficients for the selected optimal lambda
-  beta_smooth <- coef(fit, lambda = selected_lambda)$beta
+  # Extract the smoothed beta coefficients at the selected lambda, which is a knot
+  # of the path, so it is the corresponding column of the stored beta matrix
+  beta_smooth <- fit$beta[, best_idx, drop = FALSE]
   
   # Save the smoothed vector into the storage list
   smoothed_results[[base_name]] <- beta_smooth
