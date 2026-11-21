@@ -1,4 +1,8 @@
-# MasterThesis_spatioTemporalFusedLasso
+# Spatio-Temporal Fused Lasso for Nighttime Lights Change Detection
+
+Reproducible R and Quarto pipeline accompanying the Master's thesis *"Spatio-Temporal Change Detection for Image Analysis via Penalization Techniques: Tracking Urban Development from Satellite Night-Lights"* (Arianna Tessari, supervised by Prof. Alessandro Casa, 2026).
+
+The project develops a 3D fused lasso estimator via ADMM with BIC-based parameter selection to jointly model spatial and temporal structural breaks in NASA Black Marble nighttime light rasters over Kampala, Uganda, comparing it against pixel-wise 1D and quarter-wise 2D formulations.
 
 ## Project Structure
 
@@ -11,9 +15,8 @@ Here is an overview of the key files and directories in this repository:
 │   ├── blackmarble_rasters/                                                    # Monthly nighttime lights stored as SpatRaster (.rds)
 │   ├── blackmarble_tif/                                                        # GeoTIFF versions of monthly nighttime lights
 │   ├── blackmarble_quarterly_tif/                                              # Quarterly aggregated GeoTIFF outputs
-│   └── gadm/                                                                   # Administrative boundaries (GADM, Uganda)
-│   │   └── gadm41_UGA_1_pk.rds 
-│   └── kampala/                                                                # Processed quarterly GeoTIFF rasters for Kampala
+│   ├── kampala/                                                                # Processed quarterly GeoTIFF rasters for Kampala
+│   └── gadm/                                                                   # Administrative boundaries (GADM v4.1, Uganda); NOT included, see "Data Sources & Attribution"
 ├── output_fits/                                                                # Serialized model outputs and fitted objects (.rds)
 ├── output_plots/                                                               # Generated graphics, comparative charts, and visualizations
 ├── renv/                                                                       # Local R library (package management environment)
@@ -34,35 +37,41 @@ Here is an overview of the key files and directories in this repository:
 
 ### Key Files
 
-- **`data/`**: Stores the Uganda study area boundaries (`gadm41_UGA_1_pk.rds`) and monthly/quarterly aggregated Black Marble nighttime light datasets. Raster data are primarily processed and stored as stable GeoTIFF (`.tif`) files to ensure data permanence during analysis and modeling.
-- **`output_fits/`**: Dynamic directory containing serialized statistical and spatial model objects (`.rds`) saved during execution. Storing results on disk prevents data loss and avoids repeating intensive computation pipelines.
-- **`output_plots/`**: Main storage directory for high-resolution diagnostic charts, model performance evaluations, and spatial comparison grid visualizations generated throughout the analysis.
-- **`00_How-to-Store-NASA-Credentials-as-Environment-Variables-in-R-Rproj.qmd`**: Contains a step-by-step technical guide on how to configure `.Renviron` locally to securely access NASA data without hardcoding authentication parameters.
-- **`01_BlackMarbleR_Usage-DataDownload.qmd`**: Data download and preprocessing workflow for Black Marble nighttime lights. The script demonstrates how to retrieve monthly raster data using the `blackmarbler` package, process and save outputs as RDS (for analysis) and GeoTIFF (for visualization), and generate exploratory spatio-temporal summaries and maps.
-- **`02_BlackMarbleR_Preprocessing.qmd`**: Processes monthly Black Marble rasters into quarterly aggregates (Q1–Q4) using pixel-wise means to minimize temporal noise. It then extracts a fixed bounding box for the Kampala Region of Interest (ROI), applies a log-transformation, and handles spatial data gaps by performing a local imputation using a $3 \times 3$ moving window (focal mean) that replaces only missing pixels while preserving original valid radiance signals.
-- **`03_fusedlasso_2D.qmd` \| `04_fusedlasso_1D.qmd`**: Analysis using 1D and 2D fused lasso models for spatio-temporal change detection in nighttime lights data. The file implements spatial smoothing via a 2D fused lasso applied to Kampala raster data, temporal smoothing across monthly observations using a 1D fused lasso framework, and derives pixel-wise change detection metrics to identify structural dynamics and temporal shifts in urban night-time illumination patterns.
-- **`05_fusedlasso_3D.qmd`**: Proposed 3D fused lasso framework and its application to spatio-temporal change detection on raster time-series datasets.
+- **`PDF-Documentation/`**: Stores the final rendered PDF reports generated from the Quarto source files.
 
-------------------------------------------------------------------------
+- **`data/`**: Stores the monthly/quarterly aggregated NASA Black Marble nighttime light datasets. Raster data are primarily processed and stored as stable GeoTIFF (`.tif`) files to ensure data permanence during analysis and modeling. The Uganda administrative boundaries (GADM v4.1) are not redistributed in this repository: see [Data Sources & Attribution](#data-sources--attribution) for how to obtain them.
+
+- **`output_fits/`**: Dynamic directory containing serialized statistical and spatial model objects (`.rds`) saved during execution. The 2D fits are stored in a slim form (solution path only, without the dual variables), and can be regenerated by running `03_fusedlasso_2D.qmd`. Storing results on disk prevents data loss and avoids repeating intensive computation pipelines.
+
+- **`output_plots/`**: Main storage directory for high-resolution diagnostic charts, model performance evaluations, and spatial comparison grid visualizations generated throughout the analysis.
+
+- **`00_How-to-Store-NASA-Credentials-as-Environment-Variables-in-R-Rproj.qmd`**: Contains a step-by-step technical guide on how to configure `.Renviron` locally to securely access NASA data without hardcoding authentication parameters.
+
+- **`01_BlackMarbleR_Usage-DataDownload.qmd`**: Data download and preprocessing workflow for Black Marble nighttime lights. The script demonstrates how to retrieve monthly raster data using the `blackmarbler` package, process and save outputs as RDS (for analysis) and GeoTIFF (for visualization), and generate exploratory spatio-temporal summaries and maps.
+
+- **`02_BlackMarbleR_Preprocessing.qmd`**: Processes monthly Black Marble rasters into quarterly aggregates (Q1–Q4) using pixel-wise means to minimize temporal noise. It then extracts a fixed bounding box for the Kampala Region of Interest (ROI), applies a log-transformation, and handles spatial data gaps by performing a local imputation using a $3 \times 3$ moving window (focal mean) that replaces only missing pixels while preserving original valid radiance signals.
+
+- **`03_fusedlasso_2D.qmd`**: Spatial change detection using a 2D fused lasso applied to quarterly Kampala raster grids, preserving sharp spatial boundaries and deriving pixel-wise structural change metrics.
+
+- **`04_fusedlasso_1D.qmd`**: Temporal change detection using a 1D fused lasso framework applied pixel-wise across quarterly observations to identify abrupt temporal shifts in urban nighttime illumination.
+
+- **`05_fusedlasso_3D.qmd`**: Proposed 3D fused lasso framework (estimated via ADMM with adapted BIC selection) and its application to joint spatio-temporal change detection on raster time-series datasets.
 
 ## How to Run
 
 ### Clone the Repository
 
+> **Note:** large files (e.g. rasters and fitted objects) are stored with [Git LFS](https://git-lfs.com/). Install it and run `git lfs install` before cloning.
+
 To copy the project from the GitHub repository to a local machine:
 
 ``` bash
-# Clone the repository (Default: main branch)
-git clone https://github.com/artessari/MasterThesis_spatioTemporalFusedLasso
+# Clone the repository
+git clone https://github.com/artessari/MasterThesis_spatioTemporalFusedLasso.git
 
 # Navigate into the project directory
 cd MasterThesis_spatioTemporalFusedLasso
-
-# Optional: Clone a specific branch
-git clone --branch <branch-name> --single-branch https://github.com/artessari/MasterThesis_spatioTemporalFusedLasso
 ```
-
-------------------------------------------------------------------------
 
 ## Reproducible R Environment with renv
 
@@ -70,86 +79,82 @@ This project uses **renv** to ensure a consistent and reproducible working envir
 
 ### Restoring the Environment
 
-Since the project is pre-configured, the environment can be restored by running the following command in the R console:
+Open `MasterThesis_spatioTemporalFusedLasso.Rproj` in RStudio (which automatically activates `renv` via `.Rprofile`) and run the following command in the R console:
 
 ``` r
 renv::restore()
 ```
 
-This command automatically installs all the package versions defined in the `renv.lock` file.
+This command automatically installs all package versions defined in `renv.lock`.
 
-### Project Structure
+### Key Environment Files
 
-The following files are critical for environment stability:
+- **`renv.lock`**: Contains the exact list of all package versions (tracked in Git).
 
-- **renv.lock**: Contains the exact list of all package versions.
-- **.Rprofile**: Automatically activates renv when R starts up in this directory.
-- **renv/activate.R**: The script responsible for loading the local environment.
+- **`.Rprofile`**: Automatically activates `renv` when R starts up in this directory.
 
-### Updating the Environment
+- **`renv/activate.R`**: Loads the local environment.
 
-After installing new packages or changing package versions, the current state of the environment can be saved using:
+- **`renv/library/`**: Ignored by Git and recreated locally via `renv::restore()`.
 
-``` r
-renv::snapshot()
-```
+*(If you install or update packages locally, run `renv::snapshot()` to update `renv.lock`.)*
 
-### Version Control Notes
+## Executing and Rendering the Quarto Pipeline
 
-- The **renv.lock** file must be versioned and tracked in Git.
-- The **renv/library/** directory is ignored because it contains local package installations. These can be generated dynamically when needed via `renv::restore()`.
+The analysis is structured sequentially from `00` to `05`. Note that scripts `02`–`05` depend on intermediate outputs stored in `data/` and `output_fits/`, and that the administrative boundaries from GADM are downloaded automatically on the first run, since they are not redistributed with the repository (see [Data Sources & Attribution](#data-sources--attribution)).
 
-------------------------------------------------------------------------
+### Interactive Execution (RStudio)
 
-## Executing Code in Quarto (Interactive Workflow)
+Inside any `.qmd` file, code blocks can be executed interactively chunk-by-chunk or sequentially using the **Run** menu in RStudio (e.g., *Run All Chunks Above* when resuming from an intermediate step, or *Run All* to execute the full document).
 
-In RStudio, code inside a Quarto document can be executed flexibly: either step-by-step **chunk by chunk** or entirely in a single run.
+### Rendering Reports
 
-Using the **Run** button options in the editor dropdown:
-
-- **Run Current Chunk**: Executes only the active code block.
-- **Run Next Chunk**: Executes the following code block.
-- **Run All Chunks Above**: Executes all preceding blocks (crucial when dealing with data dependencies).
-- **Run All**: Executes the entire code sequentially (similar to a classic R script).
-
-This allows for isolating and testing specific parts of the analysis, or running the complete pipeline at once to instantly inspect the total output without rendering the entire document.
-
-------------------------------------------------------------------------
-
-## Rendering the Document
-
-To process the Quarto document and generate the final report, two methods are available:
-
-**Option 1: RStudio (Graphical User Interface)**
-
-In RStudio, the compilation can be triggered by clicking the **Render** button (the blue arrow icon located above the script editor).
-
-**Option 2: Terminal (Command Line Interface)**
-
-Alternatively, the document can be rendered directly via the terminal. Run the following command from the project root directory:
+Documents can be compiled either via the **Render** button in RStudio or directly from the terminal:
 
 ``` bash
-quarto render filename.qmd
-```
+# Render a single document (defaults to PDF as configured in _quarto.yml)
+quarto render 05_fusedlasso_3D.qmd
 
-To process the entire project and update all reports simultaneously, the general command without specifying a file name can be used:
-
-``` bash
+# Render all project documents
 quarto render
+
+# Render to an alternative format (e.g., HTML)
+quarto render 05_fusedlasso_3D.qmd --to html
 ```
 
-### Output Formats
+*Note: Rendering to PDF requires a local TeX distribution (such as TinyTeX or MiKTeX).*
 
-Under the current configuration, rendering defaults to **PDF format**. To provide a static, print-optimised version, this process generates a file (e.g., `filename.pdf`) containing high-quality formatted text, code sections, and visualisations.
+## Data Sources & Attribution
 
-*Note: Exporting to PDF requires an installed TeX distribution (such as MiKTeX) on the system.*
+- **Nighttime Lights (`NASA Black Marble`):** Monthly radiance composites (`VNP46A3`) retrieved using the [`blackmarbler`](https://worldbank.github.io/blackmarbler) R package (version 0.2.5; Marty & Stefanini Vicente, 2025). Re-downloading raw data from scratch requires a free NASA Earthdata account (see `00_How-to-Store-NASA-Credentials-as-Environment-Variables-in-R-Rproj.qmd`).
 
-### Alternative Formats
+- **Administrative Boundaries (`GADM v4.1`):** Uganda administrative boundary geometries (level 1) from [GADM](https://gadm.org/). The data are not included in this repository, because GADM does not allow redistribution without prior permission. They are freely available for academic and other non-commercial use. The scripts retrieve them automatically with the `geodata` R package, which downloads the file on the first run:
 
-Quarto supports a wide variety of other output formats (e.g., HTML, MS Word, or ePub). To generate an interactive version for a web browser, the target format can be specified during rendering using the `--to` parameter:
+  ``` r
+  roi_sf <- geodata::gadm(country = "UGA", level = 1, path = "data")
+  ```
 
-``` bash
-quarto render filename.qmd --to html
+  The file is saved at `data/gadm/gadm41_UGA_1_pk.rds`. The `data/gadm/` folder is excluded from version control through `.gitignore`.
+
+## Citation
+
+If you reference this work or repository, please cite the accompanying Master's thesis:
+
+``` bibtex
+@mastersthesis{tessari2026thesis,
+  author = {Tessari, Arianna},
+  title  = {Spatio-Temporal Change Detection for Image Analysis via Penalization Techniques: Tracking Urban Development from Satellite Night-Lights},
+  school = {Free University of Bozen-Bolzano},
+  year   = {2026},
+  type   = {Master's thesis},
+  note   = {Supervisor: Prof. Alessandro Casa. Code available at \url{https://github.com/artessari/MasterThesis_spatioTemporalFusedLasso}}
+}
 ```
 
-Other formats can be generated using analogous commands to adapt the report to different requirements.
+## Usage & Terms
+
+© 2026 Arianna Tessari. All rights reserved.
+
+This repository accompanies a Master's thesis and is shared for academic evaluation and for reading and reproducing the results. Please contact the author before reusing or adapting the code in other works.
+
+External datasets (NASA Black Marble, GADM v4.1) remain subject to their respective terms of use.
